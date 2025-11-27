@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react'
+import TimingsPage from './pages/Timings'
 
 export default function App() {
+  const [view, setView] = useState('home');
   const [input, setInput] = useState('');
   const [issues, setIssues] = useState([]);
   const [active, setActive] = useState(null);
@@ -71,14 +73,20 @@ export default function App() {
 
 
   return (
-    <div style={{ padding: 24, fontFamily: 'Inter, system-ui, sans-serif', maxWidth: 760, margin: '0 auto' }}>
+    <div style={{ padding: 24, fontFamily: 'Inter, system-ui, sans-serif', maxWidth: 1100, margin: '0 auto' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h1 style={{ margin: 0, fontSize: 20 }}>Time Allocated To Issue</h1>
-        <div style={{ fontSize: 12 }}>
-          <span style={{ marginRight: 8, color: '#666' }}>Status:</span>
-          <span style={{ padding: '4px 8px', borderRadius: 12, background: status === 'ready' ? '#e6ffed' : status === 'loading' ? '#fff7e6' : '#f0f0f0', color: '#222', border: '1px solid #ddd' }}>{status}</span>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          <button onClick={() => setView(view === 'home' ? 'timings' : 'home')} style={{ padding: '6px 10px' }}>{view === 'home' ? 'Manage timings' : 'Home'}</button>
+          <div style={{ fontSize: 12 }}>
+            <span style={{ marginRight: 8, color: '#666' }}>Status:</span>
+            <span style={{ padding: '4px 8px', borderRadius: 12, background: status === 'ready' ? '#e6ffed' : status === 'loading' ? '#fff7e6' : '#f0f0f0', color: '#222', border: '1px solid #ddd' }}>{status}</span>
+          </div>
         </div>
       </header>
+
+      {view === 'timings' && <TimingsPage onBack={() => setView('home')} />}
+      {view === 'home' && (
 
       <section style={{ display: 'grid', gap: 12 }}>
         <div style={{ padding: 12, border: '1px solid #e6e6e6', borderRadius: 8, background: '#fafafa' }}>
@@ -168,6 +176,7 @@ export default function App() {
           )}
         </div>
       </section>
+      )}
     </div>
   )
 }
