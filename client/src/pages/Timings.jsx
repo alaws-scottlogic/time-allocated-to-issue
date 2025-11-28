@@ -18,8 +18,14 @@ function localInputToIso(value) {
   return utc.toISOString();
 }
 
-export default function Timings({ onBack }) {
+export default function Timings({ repoUrl, ghToken, setGhToken }) {
   const [timings, setTimings] = useState([]);
+  const [persistToken, setPersistToken] = useState(false);
+  const [filter, setFilter] = useState({ status: 'all' });
+  const [selectedIssue, setSelectedIssue] = useState('all');
+  const [issueTitles, setIssueTitles] = useState({}); // key: `${repoUrl}::${issue}` -> title
+  const [issueLabels, setIssueLabels] = useState({}); // map issue -> title (for selector)
+  const [dateFilter, setDateFilter] = useState({ field: 'start', from: '', to: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [form, setForm] = useState({ issue: '', description: '', start: '', end: '' });
@@ -30,7 +36,9 @@ export default function Timings({ onBack }) {
   async function load() {
     setLoading(true);
     try {
-      const res = await fetch('/api/timings');
+      const headers = {};
+      if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
+      const res = await fetch('/api/timings', { headers });
       if (!res.ok) throw new Error('Load failed');
       const data = await res.json();
       setTimings(data);
@@ -44,6 +52,33 @@ export default function Timings({ onBack }) {
 
   useEffect(() => { load(); }, []);
 
+  // Load persisted GitHub token (if any)
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('github_token');
+      const savedPersist = localStorage.getItem('github_token_persist');
+      if (saved && !ghToken) setGhToken(saved);
+      if (savedPersist === '1') setPersistToken(true);
+    } catch (err) {
+      // ignore localStorage failures
+    }
+  }, []);
+
+  // Persist token when user chooses
+  useEffect(() => {
+    try {
+      if (persistToken) {
+        if (ghToken) localStorage.setItem('github_token', ghToken);
+        localStorage.setItem('github_token_persist', '1');
+      } else {
+        localStorage.removeItem('github_token');
+        localStorage.removeItem('github_token_persist');
+      }
+    } catch (err) {
+      // ignore
+    }
+  }, [persistToken, ghToken]);
+
   function resetForm() {
     setForm({ issue: '', description: '', start: '', end: '' });
     setError('');
@@ -53,9 +88,11 @@ export default function Timings({ onBack }) {
     e.preventDefault();
     setError('');
     if (!form.start) { setError('Start is required'); return; }
-    const payload = { issue: form.issue || null, description: form.description || '', start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null };
+    const payload = { issue: form.issue || null, description: form.description || '', start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null, repoUrl: repoUrl || null };
     try {
-      const res = await fetch('/api/timings', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const headers = { 'Content-Type': 'application/json' };
+      if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
+      const res = await fetch('/api/timings', { method: 'POST', headers, body: JSON.stringify(payload) });
       if (!res.ok) {
         const j = await res.json().catch(() => ({}));
         setError((j && j.errors && j.errors.join(', ')) || 'Save failed');
@@ -75,7 +112,11 @@ export default function Timings({ onBack }) {
     setForm({ issue: t.issue || '', description: t.description || '', start: isoToLocalInput(t.start), end: t.end ? isoToLocalInput(t.end) : '' });
     setError('');
     const rowKey = t.id ?? idx;
-    setSavingStatus(prev => ({ ...prev, [rowKey]: 'idle' }));
+    setSavingStatus(prev => {
+      const copy = { ...prev };
+      delete copy[rowKey];
+      return copy;
+    });
   }
 
   function scheduleSave(rowKey, rowIndex, newValues, serverId) {
@@ -84,9 +125,11 @@ export default function Timings({ onBack }) {
     setSavingStatus(prev => ({ ...prev, [rowKey]: 'saving' }));
     saveTimers.current[rowKey] = setTimeout(async () => {
       try {
-        const payload = { issue: newValues.issue || null, description: newValues.description || '', start: localInputToIso(newValues.start), end: newValues.end ? localInputToIso(newValues.end) : null };
+        const payload = { issue: newValues.issue || null, description: newValues.description || '', start: localInputToIso(newValues.start), end: newValues.end ? localInputToIso(newValues.end) : null, repoUrl: repoUrl || null };
         if (serverId) {
-          const res = await fetch(`/api/timings/${serverId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          const headers = { 'Content-Type': 'application/json' };
+          if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
+          const res = await fetch(`/api/timings/${serverId}`, { method: 'PUT', headers, body: JSON.stringify(payload) });
           if (!res.ok) {
             const j = await res.json().catch(() => ({}));
             setSavingStatus(prev => ({ ...prev, [rowKey]: 'error' }));
@@ -97,7 +140,9 @@ export default function Timings({ onBack }) {
           setTimings(prev => prev.map(p => p.id === updated.id ? updated : p));
         } else {
           // create new timing (no server id yet)
-          const res = await fetch(`/api/timings`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+          const headers = { 'Content-Type': 'application/json' };
+          if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
+          const res = await fetch(`/api/timings`, { method: 'POST', headers, body: JSON.stringify(payload) });
           if (!res.ok) {
             const j = await res.json().catch(() => ({}));
             setSavingStatus(prev => ({ ...prev, [rowKey]: 'error' }));
@@ -112,7 +157,11 @@ export default function Timings({ onBack }) {
           });
         }
         setSavingStatus(prev => ({ ...prev, [rowKey]: 'saved' }));
-        setTimeout(() => setSavingStatus(prev => ({ ...prev, [rowKey]: 'idle' })), 1200);
+        setTimeout(() => setSavingStatus(prev => {
+          const copy = { ...prev };
+          delete copy[rowKey];
+          return copy;
+        }), 1200);
       } catch (err) {
         console.error(err);
         setSavingStatus(prev => ({ ...prev, [rowKey]: 'error' }));
@@ -124,7 +173,9 @@ export default function Timings({ onBack }) {
   async function handleDelete(id) {
     if (!confirm('Delete this timing?')) return;
     try {
-      const res = await fetch(`/api/timings/${id}`, { method: 'DELETE' });
+      const headers = {};
+      if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
+      const res = await fetch(`/api/timings/${id}`, { method: 'DELETE', headers });
       if (!res.ok) throw new Error('Delete failed');
       setTimings(prev => prev.filter(t => t.id !== id));
     } catch (err) {
@@ -133,21 +184,85 @@ export default function Timings({ onBack }) {
     }
   }
 
-  const totalSeconds = timings.reduce((acc, t) => {
-    try {
-      const s = Date.parse(t.start);
-      const e = t.end ? Date.parse(t.end) : Date.now();
-      if (!Number.isNaN(s) && !Number.isNaN(e) && e >= s) return acc + Math.floor((e - s) / 1000);
-    } catch (err) {}
-    return acc;
-  }, 0);
+  // We keep an indexed version so editing by row index still works when list is filtered
+  const indexedTimings = timings.map((t, i) => ({ ...t, __idx: i }));
 
-  function formatTotal(sec) {
-    const h = Math.floor(sec / 3600).toString();
-    const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
-    const s = (sec % 60).toString().padStart(2, '0');
-    return `${h}:${m}:${s}`;
+  function clearFilters() {
+    setSelectedIssue('all');
+    setFilter({ status: 'all' });
+    setDateFilter({ field: 'start', from: '', to: '' });
   }
+
+  const filteredTimings = indexedTimings.filter(t => {
+    if (selectedIssue && selectedIssue !== 'all') {
+      if (String(t.issue) !== String(selectedIssue)) return false;
+    }
+    if (filter.status === 'open') return !t.end;
+    if (filter.status === 'closed') return !!t.end;
+    // date range filter (applies to chosen field: start or end)
+    const field = dateFilter.field || 'start';
+    const fromIso = dateFilter.from ? localInputToIso(dateFilter.from) : null;
+    const toIso = dateFilter.to ? localInputToIso(dateFilter.to) : null;
+    const val = t[field];
+    if (fromIso) {
+      if (!val || Date.parse(val) < Date.parse(fromIso)) return false;
+    }
+    if (toIso) {
+      if (!val || Date.parse(val) > Date.parse(toIso)) return false;
+    }
+    return true;
+  });
+
+  // derive unique issues present in timings (ignore null/empty)
+  const uniqueIssues = Array.from(new Set(timings.map(t => t.issue).filter(x => x !== null && x !== undefined && x !== ''))).sort((a, b) => {
+    const na = Number(a);
+    const nb = Number(b);
+    if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return String(a).localeCompare(String(b));
+  });
+
+  // Fetch issue titles per unique issue (using the first timing's repoUrl for that issue)
+  useEffect(() => {
+    const toFetch = [];
+    uniqueIssues.forEach(issue => {
+      // find first timing that has a repoUrl for this issue
+      const t = timings.find(x => String(x.issue) === String(issue) && x.repoUrl);
+      if (!t || !t.repoUrl) return;
+      const key = `${t.repoUrl}::${issue}`;
+      if (!issueTitles[key]) toFetch.push({ issue, repoUrl: t.repoUrl, key });
+    });
+    toFetch.forEach(async ({ issue, repoUrl, key }) => {
+      try {
+        const m = /github\.com\/(?<owner>[^\/]+)\/(?<repo>[^\/]+)(?:$|\/)/i.exec(repoUrl);
+        if (!m || !m.groups) return;
+        const owner = m.groups.owner;
+        const repo = m.groups.repo.replace(/\.git$/, '');
+        const num = String(issue).replace(/[^0-9]/g, '');
+        if (!num) return;
+        const headers = {};
+        if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
+        const res = await fetch(`/api/issue/${owner}/${repo}/${num}/title`, { headers });
+        if (!res.ok) return;
+        const j = await res.json();
+        if (j && j.title) setIssueTitles(prev => ({ ...prev, [key]: j.title }));
+      } catch (err) {
+        // ignore lookup failures
+      }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uniqueIssues, timings]);
+
+  // Build a simple mapping issue -> title (for selector labels) from fetched titles using the first repoUrl for each issue
+  useEffect(() => {
+    const labels = {};
+    uniqueIssues.forEach(issue => {
+      const t = timings.find(x => String(x.issue) === String(issue) && x.repoUrl);
+      const key = t ? `${t.repoUrl}::${issue}` : `${''}::${issue}`;
+      labels[issue] = issueTitles[key] || '';
+    });
+    setIssueLabels(labels);
+  }, [uniqueIssues, issueTitles, timings]);
+
 
   function formatDuration(start, end) {
     try {
@@ -168,9 +283,6 @@ export default function Timings({ onBack }) {
     <div style={{ padding: 24, boxSizing: 'border-box' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Timings</h2>
-        <div>
-          <button onClick={onBack} style={{ padding: '8px 10px' }}>Back</button>
-        </div>
       </div>
 
       <section style={{ marginBottom: 18 }}>
@@ -193,6 +305,27 @@ export default function Timings({ onBack }) {
       </section>
 
       <section>
+        <div style={{ display: 'flex', gap: 8, marginBottom: 12, alignItems: 'center' }}>
+          <div style={{ fontWeight: 600 }}>Filters:</div>
+          <select aria-label="Issue selector" value={selectedIssue} onChange={e => setSelectedIssue(e.target.value)} style={{ padding: '6px 8px', minWidth: 240 }}>
+            <option value="all">All issues</option>
+            {uniqueIssues.map(i => (
+              <option key={i} value={i}>{i}{issueLabels[i] ? ` - ${issueLabels[i]}` : ''}</option>
+            ))}
+          </select>
+          <select aria-label="Status filter" value={filter.status} onChange={e => setFilter(prev => ({ ...prev, status: e.target.value }))} style={{ padding: '6px 8px' }}>
+            <option value="all">All</option>
+            <option value="open">Open (no end)</option>
+            <option value="closed">Closed</option>
+          </select>
+          <select aria-label="Date field to filter" value={dateFilter.field} onChange={e => setDateFilter(prev => ({ ...prev, field: e.target.value }))} style={{ padding: '6px 8px' }}>
+            <option value="start">Start</option>
+            <option value="end">End</option>
+          </select>
+          <input aria-label="From date" title="From date" type="datetime-local" value={dateFilter.from} onChange={e => setDateFilter(prev => ({ ...prev, from: e.target.value }))} style={{ padding: '6px 8px' }} />
+          <input aria-label="To date" title="To date" type="datetime-local" value={dateFilter.to} onChange={e => setDateFilter(prev => ({ ...prev, to: e.target.value }))} style={{ padding: '6px 8px' }} />
+          <button type="button" onClick={clearFilters} style={{ padding: '6px 8px' }}>Clear filters</button>
+        </div>
           {loading ? <div>Loading…</div> : (
           <div style={{ border: '1px solid #e6e6e6', borderRadius: 8, overflow: 'hidden' }}>
             <div style={{ overflowX: 'auto', width: '100%' }}>
@@ -224,12 +357,19 @@ export default function Timings({ onBack }) {
                 </tr>
               </thead>
               <tbody>
-                {timings.map((t, idx) => (
+                {filteredTimings.map((t) => {
+                  const idx = t.__idx;
+                  return (
                   <tr key={t.id || idx} style={{ borderTop: '1px solid #f0f0f0' }}>
                     <td data-label="Issue" style={{ padding: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {editingRow === idx ? (
                         <input style={{ width: '100%', boxSizing: 'border-box' }} value={form.issue} onChange={e => { const nv = { ...form, issue: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} />
-                      ) : t.issue}
+                      ) : (
+                        <div style={{ display: 'flex', flexDirection: 'column' }}>
+                          <div style={{ fontWeight: 600 }}>{t.issue}</div>
+                          <div style={{ color: '#666', fontSize: 12 }}>{issueTitles[`${t.repoUrl || ''}::${t.issue}`] || ''}</div>
+                        </div>
+                      )}
                     </td>
                     <td data-label="Start" style={{ padding: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {editingRow === idx ? (
@@ -253,7 +393,7 @@ export default function Timings({ onBack }) {
                       )}
                     </td>
                   </tr>
-                ))}
+                )})}
               </tbody>
             </table>
             </div>

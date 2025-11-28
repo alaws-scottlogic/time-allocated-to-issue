@@ -53,3 +53,28 @@ npm start
 ```
 
 `npm start` will run both the backend and the frontend concurrently (frontend uses Vite dev server and proxies `/api` to the backend).
+
+Authentication
+--------------
+The app looks up GitHub issue titles using the GitHub API. To avoid strict rate limits or to allow lookups on private repositories, provide a GitHub Personal Access Token (PAT). There are two ways to supply a token:
+
+- Environment variable (recommended for local dev or CI):
+
+	Set the `GITHUB_TOKEN` environment variable before starting the backend. The server will use this token when the client does not send an `Authorization` header.
+
+	Example (bash):
+
+	```bash
+	export GITHUB_TOKEN="ghp_yourtokenhere"
+	cd server
+	node index.js
+	```
+
+- In the browser (optional, per-user):
+
+	The front-end now exposes a small input where you can paste a GitHub token. If entered, the UI will include the token in requests to the backend which will forward it to the GitHub API. Check "Save token locally" to persist the token in your browser's `localStorage` (for convenience).
+
+Security notes:
+
+- Tokens stored in `localStorage` are not encrypted and are visible to scripts running in the page. Only use the browser-pasted token for personal or development use.
+- If you deploy the server publicly, avoid forwarding arbitrary client-provided tokens without authentication. Instead prefer using a server-side token set via `GITHUB_TOKEN` and restrict access to the app.

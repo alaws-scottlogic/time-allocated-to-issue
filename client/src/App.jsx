@@ -6,8 +6,12 @@ export default function App() {
   const [input, setInput] = useState('');
   const [issues, setIssues] = useState([]);
   const [active, setActive] = useState(null);
-  const [repoUrl, setRepoUrl] = useState(() => localStorage.getItem('repoUrl') || 'https://github.com/facebook/react');
-  const [status, setStatus] = useState('idle');
+  const [repoUrl, setRepoUrl] = useState(() => localStorage.getItem('repoUrl') || '');
+  const [ghToken, setGhToken] = useState(() => {
+    const envToken = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GITHUB_TOKEN) || '';
+    return envToken || localStorage.getItem('github_token') || '';
+  });
+  // status state removed
   const [error, setError] = useState('');
 
   async function addIssues(override) {
@@ -24,7 +28,7 @@ export default function App() {
       return;
     }
     localStorage.setItem('repoUrl', repoUrl);
-    setStatus('loading');
+    // previously setStatus('loading') removed
     let owner = 'facebook';
     let repo = 'react';
     try {
@@ -39,7 +43,9 @@ export default function App() {
 
     const fetched = await Promise.all(nums.map(async n => {
       try {
-        const res = await fetch(`/api/issue/${owner}/${repo}/${n}/title`);
+        const headers = {};
+        if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
+        const res = await fetch(`/api/issue/${owner}/${repo}/${n}/title`, { headers });
         if (!res.ok) return { number: n, title: 'Lookup failed' };
         const body = await res.json();
         return { number: n, title: body.title };
@@ -48,21 +54,19 @@ export default function App() {
       }
     }));
     setIssues(fetched);
-    setStatus('ready');
+    // previously setStatus('ready') removed
     setError('');
     setActive(null);
   }
 
   async function selectIssue(issue) {
-    setStatus('saving');
-    const res = await fetch('/api/select', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ issue })
-    });
+    // previously setStatus('saving') removed
+    const headers = { 'Content-Type': 'application/json' };
+    if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
+    const res = await fetch('/api/select', { method: 'POST', headers, body: JSON.stringify({ issue, repoUrl }) });
     if (res.ok) {
       setActive(issue);
-      setStatus('ready');
+      // previously setStatus('ready') removed
     }
   }
 
@@ -78,14 +82,11 @@ export default function App() {
         <h1 style={{ margin: 0, fontSize: 20 }}>Time Allocated To Issue</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
           <button onClick={() => setView(view === 'home' ? 'timings' : 'home')} style={{ padding: '6px 10px' }}>{view === 'home' ? 'Manage timings' : 'Home'}</button>
-          <div style={{ fontSize: 12 }}>
-            <span style={{ marginRight: 8, color: '#666' }}>Status:</span>
-            <span style={{ padding: '4px 8px', borderRadius: 12, background: status === 'ready' ? '#e6ffed' : status === 'loading' ? '#fff7e6' : '#f0f0f0', color: '#222', border: '1px solid #ddd' }}>{status}</span>
-          </div>
+          {/* status removed */}
         </div>
       </header>
 
-      {view === 'timings' && <TimingsPage onBack={() => setView('home')} />}
+      {view === 'timings' && <TimingsPage onBack={() => setView('home')} repoUrl={repoUrl} ghToken={ghToken} setGhToken={setGhToken} />}
       {view === 'home' && (
 
       <section style={{ display: 'grid', gap: 12 }}>
@@ -99,6 +100,8 @@ export default function App() {
             <input aria-label="issue-numbers" placeholder="e.g. 123, 456" value={input} onChange={e => { setInput(e.target.value); setError(''); }} style={{ width: '100%', padding: '10px 12px', fontSize: 14, height: 40, minWidth: 0, boxSizing: 'border-box' }} />
             {error && <div role="alert" style={{ color: '#8b0000', marginTop: 6, fontSize: 13 }}>{error}</div>}
           </div>
+          <button type="button" onClick={() => addIssues()} style={{ padding: '10px 12px', height: 40 }}>Load</button>
+
           <label style={{ display: 'inline-block' }}>
             <input
               type="file"
@@ -141,9 +144,9 @@ export default function App() {
                 }
               }}
             />
-            <button type="button" style={{ padding: '10px 12px', height: 40 }}>Upload</button>
+            <button type="button" style={{ padding: '10px 12px', height: 40 }}>Upload From File</button>
           </label>
-          <button type="button" onClick={() => addIssues()} style={{ padding: '10px 12px', height: 40 }}>Load</button>
+          
           
         </div>
 
