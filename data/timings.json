@@ -1,84 +1,26 @@
 [
   {
-    "id": "1764259300934-g6xvl8",
-    "issue": "1",
-    "start": "2025-11-27T15:06:09.638Z",
-    "end": "2025-11-27T15:08:16.554Z",
-    "repoUrl": "https://github.com/alaws-scottlogic/time-allocated-to-issue"
+    "id": "1764331002804-1qcttp",
+    "issue": "7",
+    "issueTitle": "Updated CMake with new effect file locations",
+    "start": "2025-11-28T11:56:24.536Z",
+    "end": "2025-11-28T11:56:31.251Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio"
   },
   {
-    "id": "1764259300934-apjbfu",
-    "issue": "12",
-    "start": "2025-11-27T15:08:16.554Z",
-    "end": "2025-11-27T15:17:46.568Z",
-    "repoUrl": "https://github.com/alaws-scottlogic/time-allocated-to-issue"
-  },
-  {
-    "id": "1764259300934-evvzzp",
-    "issue": "1",
-    "start": "2025-11-27T15:17:46.568Z",
-    "end": "2025-11-27T15:17:48.485Z",
-    "repoUrl": "https://github.com/alaws-scottlogic/time-allocated-to-issue"
-  },
-  {
-    "id": "1764259300934-8mjq5m",
-    "issue": "5",
-    "start": "2025-11-27T15:17:48.485Z",
-    "end": "2025-11-27T15:17:50.196Z",
-    "repoUrl": "https://github.com/alaws-scottlogic/time-allocated-to-issue"
-  },
-  {
-    "id": "1764259300934-f2ej3h",
-    "issue": "4",
-    "start": "2025-11-27T15:17:50.196Z",
-    "end": "2025-11-27T15:17:51.424Z",
-    "repoUrl": "https://github.com/alaws-scottlogic/time-allocated-to-issue"
-  },
-  {
-    "id": "1764259300934-82ar0v",
-    "issue": "3",
-    "start": "2025-11-27T15:17:51.424Z",
-    "end": "2025-11-27T15:17:52.992Z",
-    "repoUrl": "https://github.com/alaws-scottlogic/time-allocated-to-issue"
-  },
-  {
-    "id": "1764259300934-fbfdoo",
+    "id": "1764331002804-qq5khw",
     "issue": "other",
-    "start": "2025-11-27T15:53:02.569Z",
-    "end": "2025-11-27T15:53:03.103Z",
+    "issueTitle": null,
+    "start": "2025-11-28T11:56:31.251Z",
+    "end": "2025-11-28T11:56:37.104Z",
     "repoUrl": "https://github.com/obsproject/obs-studio"
   },
   {
-    "id": "1764259300934-p6rotw",
-    "issue": "4",
-    "start": "2025-11-27T15:53:03.103Z",
-    "end": "2025-11-27T15:53:07.592Z",
-    "repoUrl": "https://github.com/obsproject/obs-studio"
-  },
-  {
-    "id": "1764259300934-v87pwb",
-    "issue": "2",
-    "start": "2025-11-27T15:53:07.592Z",
-    "end": "2025-11-27T15:54:39.150Z",
-    "repoUrl": "https://github.com/obsproject/obs-studio"
-  },
-  {
-    "id": "1764260019013-g8194g",
-    "issue": "3",
-    "start": "2025-11-27T15:54:39.150Z",
-    "end": "2025-11-27T16:13:20.208Z",
-    "repoUrl": "https://github.com/obsproject/obs-studio"
-  },
-  {
-    "issue": "4",
-    "start": "2025-11-27T16:13:20.208Z",
-    "end": "2025-11-27T16:26:30.733Z",
-    "repoUrl": "https://github.com/obsproject/obs-studio"
-  },
-  {
-    "issue": "1",
-    "start": "2025-11-27T16:26:30.733Z",
-    "end": "2025-11-27T17:00:10.972Z",
+    "id": "1764331002804-dyk0yp",
+    "issue": "7",
+    "issueTitle": "Updated CMake with new effect file locations",
+    "start": "2025-11-28T11:56:37.104Z",
+    "end": "2025-11-28T11:56:41.294Z",
     "repoUrl": "https://github.com/obsproject/obs-studio"
   }
 ]

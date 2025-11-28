@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
 const fs = require('fs');
@@ -6,7 +7,8 @@ const fetch = require('node-fetch');
 const { execSync } = require('child_process');
 
 const app = express();
-app.use(cors());
+// Allow Authorization header through CORS
+app.use(cors({ exposedHeaders: ['Authorization'] }));
 app.use(express.json());
 
 // Persist timings to the repository-level `data/timings.json` so it's easy
@@ -112,7 +114,6 @@ app.get('/api/issue/:owner/:repo/:number/title', async (req, res) => {
         headers['Authorization'] = envTok.startsWith('token ') || envTok.startsWith('Bearer ') ? envTok : `token ${envTok}`;
       }
     }
-
     const resp = await fetch(url, { headers });
     if (!resp.ok) {
       // Try to surface GitHub's error body for debugging when appropriate
@@ -127,6 +128,29 @@ app.get('/api/issue/:owner/:repo/:number/title', async (req, res) => {
   }
 });
 
+// Helper to fetch issue title from GitHub given a repoUrl and issue number
+async function fetchIssueTitleFromGitHub(repoUrl, issue) {
+  try {
+    if (!repoUrl || !issue) return null;
+    const m = /github\.com\/(?<owner>[^\/]+)\/(?<repo>[^\/]+)(?:$|\/)/i.exec(repoUrl);
+    if (!m || !m.groups) return null;
+    const owner = m.groups.owner;
+    const repo = m.groups.repo.replace(/\.git$/, '');
+    const num = String(issue).replace(/[^0-9]/g, '');
+    if (!num) return null;
+    const url = `https://api.github.com/repos/${owner}/${repo}/issues/${num}`;
+    const headers = { 'User-Agent': 'time-allocated-app' };
+    const envTok = getGithubEnvToken();
+    if (envTok) headers['Authorization'] = envTok.startsWith('token ') || envTok.startsWith('Bearer ') ? envTok : `token ${envTok}`;
+    const resp = await fetch(url, { headers });
+    if (!resp.ok) return null;
+    const body = await resp.json();
+    return body && body.title ? body.title : null;
+  } catch (err) {
+    return null;
+  }
+}
+
 app.post('/api/select', (req, res) => {
   // body: { issue: number|string, label?: string }
   const { issue, repoUrl } = req.body;
@@ -135,7 +159,21 @@ app.post('/api/select', (req, res) => {
 
   if (activeSelection) {
     // close previous interval
-    timings.push({ issue: activeSelection.issue, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null });
+    const closed = { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null };
+    timings.push(closed);
+    // attempt to fill missing title asynchronously
+    if (!closed.issueTitle && closed.issue) {
+      fetchIssueTitleFromGitHub(closed.repoUrl, closed.issue).then(title => {
+        if (title) {
+          const all = readTimings();
+          const idx = all.findIndex(t => t.start === closed.start && t.end === closed.end && String(t.issue) === String(closed.issue));
+          if (idx !== -1) {
+            all[idx].issueTitle = title;
+            writeTimings(all);
+          }
+        }
+      }).catch(() => {});
+    }
   }
 
   // start new interval (force one active)
@@ -149,9 +187,22 @@ app.post('/api/stop', (req, res) => {
   const now = new Date().toISOString();
   const timings = readTimings();
   if (activeSelection) {
-    timings.push({ issue: activeSelection.issue, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null });
+    const closed = { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null };
+    timings.push(closed);
     activeSelection = null;
     writeTimings(timings);
+    if (!closed.issueTitle && closed.issue) {
+      fetchIssueTitleFromGitHub(closed.repoUrl, closed.issue).then(title => {
+        if (title) {
+          const all = readTimings();
+          const idx = all.findIndex(t => t.start === closed.start && t.end === closed.end && String(t.issue) === String(closed.issue));
+          if (idx !== -1) {
+            all[idx].issueTitle = title;
+            writeTimings(all);
+          }
+        }
+      }).catch(() => {});
+    }
     return res.json({ status: 'stopped' });
   }
   return res.status(400).json({ error: 'no active selection' });
@@ -188,11 +239,23 @@ app.post('/api/timings', (req, res) => {
   const entry = {
     id,
     issue: payload.issue || null,
+    issueTitle: null,
     description: payload.description || '',
     start: payload.start,
     end: payload.end || null,
     repoUrl: payload.repoUrl || null
   };
+  // attempt to resolve title synchronously-ish (returns null on failure)
+  fetchIssueTitleFromGitHub(entry.repoUrl, entry.issue).then(title => {
+    if (title) {
+      const all = readTimings();
+      const idx = all.findIndex(t => String(t.id) === String(id));
+      if (idx !== -1) {
+        all[idx].issueTitle = title;
+        writeTimings(all);
+      }
+    }
+  }).catch(() => {});
   timings.push(entry);
   writeTimings(timings);
   return res.status(201).json(entry);
@@ -210,7 +273,21 @@ app.put('/api/timings/:id', (req, res) => {
   if (errors.length > 0) return res.status(400).json({ errors });
 
   timings[idx] = candidate;
+  // if issue or repoUrl changed (or we don't have a title), try to resolve title
+  const needResolve = (!timings[idx].issueTitle && timings[idx].issue) || payload.issue || payload.repoUrl;
   writeTimings(timings);
+  if (needResolve) {
+    fetchIssueTitleFromGitHub(timings[idx].repoUrl, timings[idx].issue).then(title => {
+      if (title) {
+        const all = readTimings();
+        const idx2 = all.findIndex(t => String(t.id) === String(id));
+        if (idx2 !== -1) {
+          all[idx2].issueTitle = title;
+          writeTimings(all);
+        }
+      }
+    }).catch(() => {});
+  }
   return res.json(timings[idx]);
 });
 

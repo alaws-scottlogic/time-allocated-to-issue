@@ -22,8 +22,9 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   const [timings, setTimings] = useState([]);
   const [persistToken, setPersistToken] = useState(false);
   const [filter, setFilter] = useState({ status: 'all' });
+  // selectedIssue controls the listing filter; default to 'all'
   const [selectedIssue, setSelectedIssue] = useState('all');
-  const [issueTitles, setIssueTitles] = useState({}); // key: `${repoUrl}::${issue}` -> title
+  // issue titles are stored on each timing as `issueTitle`
   const [issueLabels, setIssueLabels] = useState({}); // map issue -> title (for selector)
   const [dateFilter, setDateFilter] = useState({ field: 'start', from: '', to: '' });
   const [loading, setLoading] = useState(true);
@@ -51,6 +52,27 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   }
 
   useEffect(() => { load(); }, []);
+
+  // load selected issue and other label from localStorage so add form can default
+  useEffect(() => {
+    try {
+      const sel = localStorage.getItem('selected_issue');
+      const otherLabel = localStorage.getItem('other_issue_label') || 'Other';
+      const otherLabel2 = localStorage.getItem('other_issue_label_2') || 'Other (custom)';
+      // Use saved selection only to prefill the add form; do not apply as active list filter
+      if (sel && sel !== 'all' && sel !== 'other') {
+        setForm(prev => ({ ...prev, issue: sel }));
+      }
+      if (sel === 'other') {
+        setForm(prev => ({ ...prev, issue: otherLabel }));
+      }
+      if (sel === 'other2') {
+        setForm(prev => ({ ...prev, issue: otherLabel2 }));
+      }
+    } catch (err) {
+      // ignore
+    }
+  }, []);
 
   // Load persisted GitHub token (if any)
   useEffect(() => {
@@ -88,7 +110,19 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     e.preventDefault();
     setError('');
     if (!form.start) { setError('Start is required'); return; }
-    const payload = { issue: form.issue || null, description: form.description || '', start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null, repoUrl: repoUrl || null };
+    // If no issue typed, try to use the selected issue stored in localStorage
+    let issueValue = form.issue;
+    try {
+      const sel = localStorage.getItem('selected_issue');
+      const otherLabel = localStorage.getItem('other_issue_label') || 'Other';
+      const otherLabel2 = localStorage.getItem('other_issue_label_2') || 'Other (custom)';
+      if ((!issueValue || String(issueValue).trim() === '') && sel && sel !== 'all') {
+        issueValue = sel === 'other' ? otherLabel : sel === 'other2' ? otherLabel2 : sel;
+      }
+    } catch (err) {
+      // ignore
+    }
+    const payload = { issue: issueValue || null, description: form.description || '', start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null, repoUrl: repoUrl || null };
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
@@ -222,46 +256,18 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   });
 
   // Fetch issue titles per unique issue (using the first timing's repoUrl for that issue)
-  useEffect(() => {
-    const toFetch = [];
-    uniqueIssues.forEach(issue => {
-      // find first timing that has a repoUrl for this issue
-      const t = timings.find(x => String(x.issue) === String(issue) && x.repoUrl);
-      if (!t || !t.repoUrl) return;
-      const key = `${t.repoUrl}::${issue}`;
-      if (!issueTitles[key]) toFetch.push({ issue, repoUrl: t.repoUrl, key });
-    });
-    toFetch.forEach(async ({ issue, repoUrl, key }) => {
-      try {
-        const m = /github\.com\/(?<owner>[^\/]+)\/(?<repo>[^\/]+)(?:$|\/)/i.exec(repoUrl);
-        if (!m || !m.groups) return;
-        const owner = m.groups.owner;
-        const repo = m.groups.repo.replace(/\.git$/, '');
-        const num = String(issue).replace(/[^0-9]/g, '');
-        if (!num) return;
-        const headers = {};
-        if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-        const res = await fetch(`/api/issue/${owner}/${repo}/${num}/title`, { headers });
-        if (!res.ok) return;
-        const j = await res.json();
-        if (j && j.title) setIssueTitles(prev => ({ ...prev, [key]: j.title }));
-      } catch (err) {
-        // ignore lookup failures
-      }
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [uniqueIssues, timings]);
+  // Issue titles are now stored on the timing entries as `issueTitle` by the server.
+  // No per-issue client fetches are required; we will read `t.issueTitle` where available.
 
   // Build a simple mapping issue -> title (for selector labels) from fetched titles using the first repoUrl for each issue
   useEffect(() => {
     const labels = {};
     uniqueIssues.forEach(issue => {
-      const t = timings.find(x => String(x.issue) === String(issue) && x.repoUrl);
-      const key = t ? `${t.repoUrl}::${issue}` : `${''}::${issue}`;
-      labels[issue] = issueTitles[key] || '';
+      const t = timings.find(x => String(x.issue) === String(issue));
+      labels[issue] = t && t.issueTitle ? t.issueTitle : '';
     });
     setIssueLabels(labels);
-  }, [uniqueIssues, issueTitles, timings]);
+  }, [uniqueIssues, timings]);
 
 
   function formatDuration(start, end) {
@@ -309,9 +315,12 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
           <div style={{ fontWeight: 600 }}>Filters:</div>
           <select aria-label="Issue selector" value={selectedIssue} onChange={e => setSelectedIssue(e.target.value)} style={{ padding: '6px 8px', minWidth: 240 }}>
             <option value="all">All issues</option>
-            {uniqueIssues.map(i => (
-              <option key={i} value={i}>{i}{issueLabels[i] ? ` - ${issueLabels[i]}` : ''}</option>
-            ))}
+            {uniqueIssues.map(i => {
+              const label = issueLabels[i];
+              const numeric = String(i).replace(/[^0-9]/g, '');
+              const text = label && numeric ? `#${numeric}: ${label}` : i + (label ? ` - ${label}` : '');
+              return <option key={i} value={i}>{text}</option>;
+            })}
           </select>
           <select aria-label="Status filter" value={filter.status} onChange={e => setFilter(prev => ({ ...prev, status: e.target.value }))} style={{ padding: '6px 8px' }}>
             <option value="all">All</option>
@@ -366,8 +375,15 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
                         <input style={{ width: '100%', boxSizing: 'border-box' }} value={form.issue} onChange={e => { const nv = { ...form, issue: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} />
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
-                          <div style={{ fontWeight: 600 }}>{t.issue}</div>
-                          <div style={{ color: '#666', fontSize: 12 }}>{issueTitles[`${t.repoUrl || ''}::${t.issue}`] || ''}</div>
+                          <div style={{ fontWeight: 600 }}>{
+                            (() => {
+                              const title = t.issueTitle;
+                              const numeric = String(t.issue).replace(/[^0-9]/g, '');
+                              if (title && numeric) return `Issue #${numeric}: ${title}`;
+                              if (title) return title;
+                              return t.issue;
+                            })()
+                          }</div>
                         </div>
                       )}
                     </td>

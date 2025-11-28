@@ -13,6 +13,8 @@ export default function App() {
   });
   // status state removed
   const [error, setError] = useState('');
+  const [otherLabel, setOtherLabel] = useState(() => localStorage.getItem('other_issue_label') || 'Other');
+  const [otherLabel2, setOtherLabel2] = useState(() => localStorage.getItem('other_issue_label_2') || 'Custom Time Entry');
 
   async function addIssues(override) {
     const raw = (typeof override === 'string' && override.length > 0) ? override : input;
@@ -63,9 +65,14 @@ export default function App() {
     // previously setStatus('saving') removed
     const headers = { 'Content-Type': 'application/json' };
     if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-    const res = await fetch('/api/select', { method: 'POST', headers, body: JSON.stringify({ issue, repoUrl }) });
+    // When selecting 'other' or 'other2', include the custom label so the server/client can use it
+    const payload = { issue, repoUrl };
+    if (issue === 'other') payload.otherLabel = otherLabel;
+    if (issue === 'other2') payload.otherLabel = otherLabel2;
+    const res = await fetch('/api/select', { method: 'POST', headers, body: JSON.stringify(payload) });
     if (res.ok) {
       setActive(issue);
+      try { localStorage.setItem('selected_issue', issue); } catch (err) { }
       // previously setStatus('ready') removed
     }
   }
@@ -171,8 +178,18 @@ export default function App() {
 
                 <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0' }}>
                   <input type="radio" name="issue" value="other" checked={active === 'other'} onChange={() => selectIssue('other')} style={{ width: 18, height: 18 }} />
-                  <div style={{ flex: 1 }}><div style={{ fontWeight: 600 }}>Other</div></div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>{otherLabel}</div>
+                  </div>
                   {active === 'other' && <span style={{ fontSize: 12, padding: '4px 8px', background: '#eef9ff', borderRadius: 10 }}>Active</span>}
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0' }}>
+                  <input type="radio" name="issue" value="other2" checked={active === 'other2'} onChange={() => selectIssue('other2')} style={{ width: 18, height: 18 }} />
+                  <div style={{ flex: 1 }}>
+                    <input aria-label="other-label-2" placeholder="Custom Time Entry" value={otherLabel2} onChange={e => { setOtherLabel2(e.target.value); localStorage.setItem('other_issue_label_2', e.target.value); }} style={{ padding: '6px 8px', fontSize: 13, width: '100%', boxSizing: 'border-box' }} />
+                  </div>
+                  {active === 'other2' && <span style={{ fontSize: 12, padding: '4px 8px', background: '#eef9ff', borderRadius: 10 }}>Active</span>}
                 </label>
               </form>
             </div>
