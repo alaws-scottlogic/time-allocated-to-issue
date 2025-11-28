@@ -15,6 +15,7 @@ export default function App() {
   const [error, setError] = useState('');
   const [otherLabel, setOtherLabel] = useState(() => localStorage.getItem('other_issue_label') || 'Other');
   const [otherLabel2, setOtherLabel2] = useState(() => localStorage.getItem('other_issue_label_2') || 'Custom Time Entry');
+  const [ownerType, setOwnerType] = useState(() => localStorage.getItem('owner_type') || 'mine');
 
   async function addIssues(override) {
     const raw = (typeof override === 'string' && override.length > 0) ? override : input;
@@ -66,12 +67,13 @@ export default function App() {
     const headers = { 'Content-Type': 'application/json' };
     if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
     // When selecting 'other' or 'other2', include the custom label so the server/client can use it
-    const payload = { issue, repoUrl };
+    const payload = { issue, repoUrl, owner: ownerType };
     if (issue === 'other') payload.otherLabel = otherLabel;
     if (issue === 'other2') payload.otherLabel = otherLabel2;
     const res = await fetch('/api/select', { method: 'POST', headers, body: JSON.stringify(payload) });
     if (res.ok) {
       setActive(issue);
+      try { localStorage.setItem('selected_owner', ownerType); } catch (err) {}
       try { localStorage.setItem('selected_issue', issue); } catch (err) { }
       // previously setStatus('ready') removed
     }
@@ -84,7 +86,7 @@ export default function App() {
 
 
   return (
-    <div style={{ padding: 24, fontFamily: 'Inter, system-ui, sans-serif', maxWidth: 1100, margin: '0 auto' }}>
+    <div style={{ fontFamily: 'Inter, system-ui, sans-serif', margin: '0 auto' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h1 style={{ margin: 0, fontSize: 20 }}>Time Allocated To Issue</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -93,7 +95,7 @@ export default function App() {
         </div>
       </header>
 
-      {view === 'timings' && <TimingsPage onBack={() => setView('home')} repoUrl={repoUrl} ghToken={ghToken} setGhToken={setGhToken} />}
+      {view === 'timings' && <TimingsPage onBack={() => setView('home')} repoUrl={repoUrl} ghToken={ghToken} setGhToken={setGhToken} owner={ownerType} />}
       {view === 'home' && (
 
       <section style={{ display: 'grid', gap: 12 }}>
@@ -164,6 +166,14 @@ export default function App() {
 
           {issues.length > 0 && (
             <div style={{ marginTop: 8, padding: 12, border: '1px solid #eee', borderRadius: 8 }}>
+              <div style={{ marginBottom: 8 }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                  <input type="radio" name="owner_select" value="mine" checked={ownerType === 'mine'} onChange={() => { setOwnerType('mine'); try { localStorage.setItem('owner_type', 'mine'); } catch (e) {} }} />
+                  <span>My issue</span>
+                  <input type="radio" name="owner_select" value="partner" checked={ownerType === 'partner'} onChange={() => { setOwnerType('partner'); try { localStorage.setItem('owner_type', 'partner'); } catch (e) {} }} style={{ marginLeft: 12 }} />
+                  <span>Partner's issue</span>
+                </label>
+              </div>
               <form>
                 {issues.map(i => (
                   <label key={i.number} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0' }}>

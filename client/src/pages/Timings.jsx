@@ -18,7 +18,7 @@ function localInputToIso(value) {
   return utc.toISOString();
 }
 
-export default function Timings({ repoUrl, ghToken, setGhToken }) {
+export default function Timings({ repoUrl, ghToken, setGhToken, owner }) {
   const [timings, setTimings] = useState([]);
   const [persistToken, setPersistToken] = useState(false);
   const [filter, setFilter] = useState({ status: 'all' });
@@ -29,7 +29,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   const [dateFilter, setDateFilter] = useState({ field: 'start', from: '', to: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ issue: '', description: '', start: '', end: '' });
+  const [form, setForm] = useState({ issue: '', description: '', start: '', end: '', owner: owner || '' });
   const [editingRow, setEditingRow] = useState(null); // index of the row being edited
   const [savingStatus, setSavingStatus] = useState({});
   const saveTimers = useRef({});
@@ -122,7 +122,9 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     } catch (err) {
       // ignore
     }
-    const payload = { issue: issueValue || null, description: form.description || '', start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null, repoUrl: repoUrl || null };
+    let chosenOwner = owner;
+    try { const savedOwner = localStorage.getItem('selected_owner'); if ((!chosenOwner || chosenOwner === '') && savedOwner) chosenOwner = savedOwner; } catch (e) {}
+    const payload = { issue: issueValue || null, description: form.description || '', start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null, repoUrl: repoUrl || null, owner: chosenOwner || 'mine' };
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
@@ -143,7 +145,8 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
 
   function beginEdit(t, idx) {
     setEditingRow(idx);
-    setForm({ issue: t.issue || '', description: t.description || '', start: isoToLocalInput(t.start), end: t.end ? isoToLocalInput(t.end) : '' });
+    const initialOwner = t.owner || owner || (typeof localStorage !== 'undefined' ? localStorage.getItem('selected_owner') : '') || '';
+    setForm({ issue: t.issue || '', description: t.description || '', start: isoToLocalInput(t.start), end: t.end ? isoToLocalInput(t.end) : '', owner: initialOwner });
     setError('');
     const rowKey = t.id ?? idx;
     setSavingStatus(prev => {
@@ -159,7 +162,10 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     setSavingStatus(prev => ({ ...prev, [rowKey]: 'saving' }));
     saveTimers.current[rowKey] = setTimeout(async () => {
       try {
-        const payload = { issue: newValues.issue || null, description: newValues.description || '', start: localInputToIso(newValues.start), end: newValues.end ? localInputToIso(newValues.end) : null, repoUrl: repoUrl || null };
+        // prefer owner from the edited values, then prop, then persisted selection
+        let chosenOwner2 = newValues.owner || owner;
+        try { const savedOwner2 = localStorage.getItem('selected_owner'); if ((!chosenOwner2 || chosenOwner2 === '') && savedOwner2) chosenOwner2 = savedOwner2; } catch (e) {}
+        const payload = { issue: newValues.issue || null, description: newValues.description || '', start: localInputToIso(newValues.start), end: newValues.end ? localInputToIso(newValues.end) : null, repoUrl: repoUrl || null, owner: chosenOwner2 || 'mine' };
         if (serverId) {
           const headers = { 'Content-Type': 'application/json' };
           if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
@@ -355,14 +361,15 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
                 }
               }
             `}</style>
-            <table className="timings-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 600 }}>
+            <table className="timings-table" style={{ width: '100%', borderCollapse: 'collapse', tableLayout: 'fixed', minWidth: 1300 }}>
               <thead style={{ background: '#fafafa' }}>
                 <tr>
-                  <th style={{ textAlign: 'left', padding: 8, width: '10%' }}>Issue</th>
-                  <th style={{ textAlign: 'left', padding: 8, width: '30%' }}>Start</th>
-                  <th style={{ textAlign: 'left', padding: 8, width: '30%' }}>End</th>
-                  <th style={{ textAlign: 'left', padding: 8, width: '18%' }}>Duration</th>
-                  <th style={{ padding: 8, width: '12%' }}></th>
+                  <th style={{ textAlign: 'left', padding: 8, width: '44%' }}>Issue</th>
+                  <th style={{ textAlign: 'left', padding: 8, width: '6%' }}>Owner</th>
+                  <th style={{ textAlign: 'left', padding: 8, width: '18%' }}>Start</th>
+                  <th style={{ textAlign: 'left', padding: 8, width: '18%' }}>End</th>
+                  <th style={{ textAlign: 'left', padding: 8, width: '8%' }}>Duration</th>
+                  <th style={{ padding: 8, width: '6%' }}></th>
                 </tr>
               </thead>
               <tbody>
@@ -372,7 +379,9 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
                   <tr key={t.id || idx} style={{ borderTop: '1px solid #f0f0f0' }}>
                     <td data-label="Issue" style={{ padding: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {editingRow === idx ? (
-                        <input style={{ width: '100%', boxSizing: 'border-box' }} value={form.issue} onChange={e => { const nv = { ...form, issue: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} />
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <input style={{ width: '100%', boxSizing: 'border-box', padding: '8px 10px', borderRadius: 6, border: '1px solid #e8e8e8' }} value={form.issue} onChange={e => { const nv = { ...form, issue: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} />
+                          </div>
                       ) : (
                         <div style={{ display: 'flex', flexDirection: 'column' }}>
                           <div style={{ fontWeight: 600 }}>{
@@ -384,6 +393,20 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
                               return t.issue;
                             })()
                           }</div>
+                        </div>
+                      )}
+                    </td>
+                    <td data-label="Owner" style={{ padding: 8, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {editingRow === idx ? (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                          <select value={form.owner} onChange={e => { const nv = { ...form, owner: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} style={{ padding: '6px 10px', borderRadius: 6, border: '1px solid #e8e8e8', background: '#fff' }}>
+                            <option value="mine">Mine</option>
+                            <option value="partner">Partner</option>
+                          </select>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'inline-flex', alignItems: 'center' }}>
+                          <span style={{ display: 'inline-block', fontSize: 12, padding: '4px 10px', borderRadius: 999, background: (t.owner === 'partner' ? '#fff7ef' : '#f3fbff'), color: (t.owner === 'partner' ? '#8a4b00' : '#055a9a'), fontWeight: 600, border: (t.owner === 'partner' ? '1px solid #ffe8cf' : '1px solid #dff0ff') }}>{t.owner === 'partner' ? "Partner" : "Mine"}</span>
                         </div>
                       )}
                     </td>
@@ -400,11 +423,26 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
                     <td data-label="Duration" style={{ padding: 8 }}>{formatDuration(t.start, t.end)} {savingStatus[t.id ?? idx] === 'saving' ? ' (saving...)' : savingStatus[t.id ?? idx] === 'saved' ? ' (saved)' : ''}</td>
                     <td data-label="Actions" className="actions" style={{ padding: 8 }}>
                       {editingRow === idx ? (
-                        <button onClick={() => { setEditingRow(null); resetForm(); }}>Done</button>
+                        <button aria-label="Done" title="Done" style={{ padding: '6px 8px', fontSize: 12, lineHeight: '1', borderRadius: 6 }} onClick={() => { setEditingRow(null); resetForm(); }}>
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                            <path d="M20 6L9 17l-5-5" stroke="#0b66a0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                          </svg>
+                        </button>
                       ) : (
                         <div className="timings-actions" style={{ display: 'flex', gap: 6 }}>
-                          <button onClick={() => beginEdit(t, idx)}>Edit</button>
-                          <button onClick={() => handleDelete(t.id)}>Delete</button>
+                          <button aria-label="Edit" title="Edit" style={{ padding: '6px', fontSize: 12, lineHeight: '1', borderRadius: 6, minWidth: 0 }} onClick={() => beginEdit(t, idx)}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                              <path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z" fill="#055a9a"/>
+                              <path d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z" fill="#055a9a"/>
+                            </svg>
+                          </button>
+                          <button aria-label="Delete" title="Delete" style={{ padding: '6px', fontSize: 12, lineHeight: '1', borderRadius: 6, minWidth: 0 }} onClick={() => handleDelete(t.id)}>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden>
+                              <path d="M9 3v1H4v2h16V4h-5V3H9z" fill="#055a9a" />
+                              <path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13" stroke="#055a9a" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                              <path d="M10 11v6M14 11v6" stroke="#055a9a" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"/>
+                            </svg>
+                          </button>
                         </div>
                       )}
                     </td>

@@ -1,26 +1,164 @@
 [
   {
-    "id": "1764331002804-1qcttp",
-    "issue": "7",
-    "issueTitle": "Updated CMake with new effect file locations",
-    "start": "2025-11-28T11:56:24.536Z",
-    "end": "2025-11-28T11:56:31.251Z",
-    "repoUrl": "https://github.com/obsproject/obs-studio"
+    "id": "1764338909826-mpm5oa",
+    "issue": "9",
+    "issueTitle": "Include compilation option to use libav instead of ffmpeg",
+    "start": "2025-11-28T14:03:44.821Z",
+    "end": "2025-11-28T14:08:02.491Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
   },
   {
-    "id": "1764331002804-qq5khw",
+    "id": "1764338909826-woakj6",
     "issue": "other",
     "issueTitle": null,
-    "start": "2025-11-28T11:56:31.251Z",
-    "end": "2025-11-28T11:56:37.104Z",
-    "repoUrl": "https://github.com/obsproject/obs-studio"
+    "start": "2025-11-28T14:08:02.491Z",
+    "end": "2025-11-28T14:08:09.833Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
   },
   {
-    "id": "1764331002804-dyk0yp",
+    "id": "1764338909826-fp96a1",
+    "issue": "2",
+    "issueTitle": "modernize header guards to #pragma once",
+    "start": "2025-11-28T14:08:09.833Z",
+    "end": "2025-11-28T14:08:19.502Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764338909826-xeqwz1",
+    "issue": "3",
+    "issueTitle": "Compilation fails with wxWidgets below version 2.9.0",
+    "start": "2025-11-28T14:08:19.502Z",
+    "end": "2025-11-28T14:08:25.896Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764339152937-i6r0o4",
+    "issue": "1",
+    "issueTitle": "modernize header guards to #pragma once",
+    "start": "2025-11-28T14:08:25.896Z",
+    "end": "2025-11-28T14:12:16.218Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764339152937-bl0l7o",
     "issue": "7",
     "issueTitle": "Updated CMake with new effect file locations",
-    "start": "2025-11-28T11:56:37.104Z",
-    "end": "2025-11-28T11:56:41.294Z",
-    "repoUrl": "https://github.com/obsproject/obs-studio"
+    "start": "2025-11-28T14:12:16.218Z",
+    "end": "2025-11-28T14:12:20.059Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764339152937-jyfimi",
+    "issue": "6",
+    "issueTitle": "When I Tried Test Compile",
+    "start": "2025-11-28T14:12:20.059Z",
+    "end": "2025-11-28T14:12:23.723Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764339152937-920a25",
+    "issue": "5",
+    "issueTitle": "nitpickingly casting a void pointer to the appropriate struct pointer.",
+    "start": "2025-11-28T14:12:23.723Z",
+    "end": "2025-11-28T14:12:26.803Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764339152937-7kx6qc",
+    "issue": "7",
+    "issueTitle": "Updated CMake with new effect file locations",
+    "start": "2025-11-28T14:12:26.803Z",
+    "end": "2025-11-28T14:12:29.615Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764339152937-xw7qbq",
+    "issue": "other",
+    "issueTitle": null,
+    "start": "2025-11-28T14:12:29.615Z",
+    "end": "2025-11-28T14:12:31.248Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764339254478-5ciars",
+    "issue": "6",
+    "issueTitle": "When I Tried Test Compile",
+    "start": "2025-11-28T14:12:31.248Z",
+    "end": "2025-11-28T14:13:15.201Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764339254478-5xb8sw",
+    "issue": "6",
+    "issueTitle": "When I Tried Test Compile",
+    "start": "2025-11-28T14:13:15.201Z",
+    "end": "2025-11-28T14:13:20.309Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764339254478-00kfu7",
+    "issue": "5",
+    "issueTitle": "nitpickingly casting a void pointer to the appropriate struct pointer.",
+    "start": "2025-11-28T14:13:20.309Z",
+    "end": "2025-11-28T14:13:23.719Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764339490555-j1ez9c",
+    "issue": "7",
+    "issueTitle": "Updated CMake with new effect file locations",
+    "start": "2025-11-28T14:13:23.719Z",
+    "end": "2025-11-28T14:16:48.874Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
+  },
+  {
+    "id": "1764339490555-pi4yyj",
+    "issue": "123",
+    "issueTitle": null,
+    "start": "2025-11-28T14:16:48.874Z",
+    "end": "2025-11-28T14:16:49.229Z",
+    "repoUrl": "https://github.com/foo/bar",
+    "owner": "partner"
+  },
+  {
+    "id": "1764339541586-oprvrs",
+    "issue": "other",
+    "issueTitle": null,
+    "start": "2025-11-28T14:18:10.330Z",
+    "end": "2025-11-28T14:18:10.711Z",
+    "repoUrl": "https://github.com/foo/bar",
+    "owner": "partner"
+  },
+  {
+    "id": "1764339583242-85d86s",
+    "issue": "12",
+    "issueTitle": "Fixes issues with autoconf",
+    "start": "2025-11-28T14:19:20.271Z",
+    "end": "2025-11-28T14:19:43.240Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "partner"
+  },
+  {
+    "id": "1764339588744-4vzkl6",
+    "issue": "Other",
+    "issueTitle": null,
+    "start": "2025-11-28T14:19:43.240Z",
+    "end": "2025-11-28T14:19:48.743Z",
+    "repoUrl": "https://github.com/obsproject/obs-studio",
+    "owner": "mine"
   }
 ]

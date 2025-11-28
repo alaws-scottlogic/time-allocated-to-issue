@@ -153,13 +153,14 @@ async function fetchIssueTitleFromGitHub(repoUrl, issue) {
 
 app.post('/api/select', (req, res) => {
   // body: { issue: number|string, label?: string }
-  const { issue, repoUrl } = req.body;
+  console.log('Select API called with body:', req.body);
+  const { issue: rawIssue, repoUrl, owner, otherLabel } = req.body;
   const now = new Date().toISOString();
   const timings = readTimings();
 
   if (activeSelection) {
-    // close previous interval
-    const closed = { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null };
+    // close previous interval — ensure we assign an id and carry owner
+    const closed = Object.assign({ id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8) }, { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null, owner: (owner || activeSelection.owner) || 'mine' });
     timings.push(closed);
     // attempt to fill missing title asynchronously
     if (!closed.issueTitle && closed.issue) {
@@ -176,8 +177,21 @@ app.post('/api/select', (req, res) => {
     }
   }
 
+  // Resolve special tokens like 'other'/'other2' into usable issue labels so they are persisted
+  let issue = rawIssue;
+  try {
+    if (issue === 'other') {
+      issue = otherLabel || (typeof process !== 'undefined' ? 'Other' : 'Other');
+    } else if (issue === 'other2') {
+      issue = otherLabel || 'Other (custom)';
+    }
+  } catch (e) {
+    // fall back to rawIssue if anything goes wrong
+    issue = rawIssue;
+  }
+
   // start new interval (force one active)
-  activeSelection = { issue, start: now, repoUrl: repoUrl || DETECTED_REPO_URL || null };
+  activeSelection = { issue, start: now, repoUrl: repoUrl || DETECTED_REPO_URL || null, owner: owner || 'mine' };
   writeTimings(timings);
 
   return res.json({ status: 'ok', active: activeSelection });
@@ -187,7 +201,7 @@ app.post('/api/stop', (req, res) => {
   const now = new Date().toISOString();
   const timings = readTimings();
   if (activeSelection) {
-    const closed = { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null };
+    const closed = Object.assign({ id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8) }, { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null, owner: activeSelection.owner || 'mine' });
     timings.push(closed);
     activeSelection = null;
     writeTimings(timings);
@@ -223,6 +237,10 @@ app.get('/api/timings', (req, res) => {
       changed = true;
       out = Object.assign({}, out, { repoUrl: DETECTED_REPO_URL || null });
     }
+    if (!('owner' in out) || out.owner === undefined || out.owner === null) {
+      changed = true;
+      out = Object.assign({}, out, { owner: 'mine' });
+    }
     return out;
   });
   if (changed) writeTimings(updated);
@@ -243,7 +261,8 @@ app.post('/api/timings', (req, res) => {
     description: payload.description || '',
     start: payload.start,
     end: payload.end || null,
-    repoUrl: payload.repoUrl || null
+    repoUrl: payload.repoUrl || null,
+    owner: payload.owner || 'mine'
   };
   // attempt to resolve title synchronously-ish (returns null on failure)
   fetchIssueTitleFromGitHub(entry.repoUrl, entry.issue).then(title => {
@@ -307,4 +326,30 @@ const startupTok = getGithubEnvToken();
 if (startupTok) {
   const masked = startupTok.length > 8 ? `${startupTok.slice(0,4)}...${startupTok.slice(-4)}` : '***';
 }
+// Normalize existing timings file on startup so legacy entries get ids/owner/repoUrl
+(function normalizeTimingsOnStartup() {
+  try {
+    const all = readTimings();
+    let changed = false;
+    const updated = all.map(item => {
+      let out = item;
+      if (!out.id) {
+        changed = true;
+        out = Object.assign({ id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8) }, out);
+      }
+      if (!('repoUrl' in out) || out.repoUrl === undefined || out.repoUrl === null) {
+        changed = true;
+        out = Object.assign({}, out, { repoUrl: DETECTED_REPO_URL || null });
+      }
+      if (!('owner' in out) || out.owner === undefined || out.owner === null) {
+        changed = true;
+        out = Object.assign({}, out, { owner: 'mine' });
+      }
+      return out;
+    });
+    if (changed) writeTimings(updated);
+  } catch (err) {
+    // ignore normalization failures
+  }
+})();
 app.listen(PORT, () => {});
