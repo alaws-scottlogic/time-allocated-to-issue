@@ -18,7 +18,7 @@ function localInputToIso(value) {
   return utc.toISOString();
 }
 
-export default function Timings({ repoUrl, ghToken, setGhToken, owner }) {
+export default function Timings({ repoUrl, ghToken, setGhToken }) {
   const [timings, setTimings] = useState([]);
   const [persistToken, setPersistToken] = useState(false);
   // selectedIssue controls the listing filter; default to 'all'
@@ -28,7 +28,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken, owner }) {
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ issue: '', description: '', start: '', end: '', owner: owner || '' });
+  const [form, setForm] = useState({ issue: '', description: '', start: '', end: '' });
   const [editingRow, setEditingRow] = useState(null); // index of the row being edited
   const [savingStatus, setSavingStatus] = useState({});
   const saveTimers = useRef({});
@@ -101,7 +101,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken, owner }) {
   }, [persistToken, ghToken]);
 
   function resetForm() {
-    setForm(prev => ({ issue: '', description: '', start: '', end: '', owner: prev?.owner || owner || '' }));
+    setForm({ issue: '', description: '', start: '', end: '' });
     setError('');
   }
 
@@ -121,9 +121,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken, owner }) {
     } catch (err) {
       // ignore
     }
-    let chosenOwner = owner;
-    try { const savedOwner = localStorage.getItem('selected_owner'); if ((!chosenOwner || chosenOwner === '') && savedOwner) chosenOwner = savedOwner; } catch (e) {}
-    const payload = { issue: issueValue || null, description: form.description || '', start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null, repoUrl: repoUrl || null, owner: chosenOwner || 'mine' };
+    const payload = { issue: issueValue || null, description: form.description || '', start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null, repoUrl: repoUrl || null };
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
@@ -144,8 +142,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken, owner }) {
 
   function beginEdit(t, idx) {
     setEditingRow(idx);
-    const initialOwner = t.owner || owner || (typeof localStorage !== 'undefined' ? localStorage.getItem('selected_owner') : '') || '';
-    setForm({ issue: t.issue || '', description: t.description || '', start: isoToLocalInput(t.start), end: t.end ? isoToLocalInput(t.end) : '', owner: initialOwner });
+    setForm({ issue: t.issue || '', description: t.description || '', start: isoToLocalInput(t.start), end: t.end ? isoToLocalInput(t.end) : '' });
     setError('');
     const rowKey = t.id ?? idx;
     setSavingStatus(prev => {
@@ -161,10 +158,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken, owner }) {
     setSavingStatus(prev => ({ ...prev, [rowKey]: 'saving' }));
     saveTimers.current[rowKey] = setTimeout(async () => {
       try {
-        // prefer owner from the edited values, then prop, then persisted selection
-        let chosenOwner2 = newValues.owner || owner;
-        try { const savedOwner2 = localStorage.getItem('selected_owner'); if ((!chosenOwner2 || chosenOwner2 === '') && savedOwner2) chosenOwner2 = savedOwner2; } catch (e) {}
-        const payload = { issue: newValues.issue || null, description: newValues.description || '', start: localInputToIso(newValues.start), end: newValues.end ? localInputToIso(newValues.end) : null, repoUrl: repoUrl || null, owner: chosenOwner2 || 'mine' };
+        const payload = { issue: newValues.issue || null, description: newValues.description || '', start: localInputToIso(newValues.start), end: newValues.end ? localInputToIso(newValues.end) : null, repoUrl: repoUrl || null };
         if (serverId) {
           const headers = { 'Content-Type': 'application/json' };
           if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
@@ -316,9 +310,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken, owner }) {
         .timings-table tbody tr:nth-child(odd) { background: #fff }
         .timings-table tbody tr:hover { background: #f6fbff }
         .issue-title { font-weight:600; color:#053a66 }
-        .owner-badge { display:inline-block; font-size:12px; padding:4px 10px; border-radius:999px; font-weight:600 }
-        .owner-mine { background:#f3fbff; color:#055a9a; border:1px solid #dff0ff }
-        .owner-partner { background:#fff7ef; color:#8a4b00; border:1px solid #ffe8cf }
+        
 
         @media (max-width:800px) {
           .timings-add-form { grid-template-columns: 1fr 1fr; }
@@ -375,7 +367,6 @@ export default function Timings({ repoUrl, ghToken, setGhToken, owner }) {
                 <thead>
                   <tr>
                     <th style={{ width: '40%' }}>Issue</th>
-                    <th style={{ width: '8%' }}>Owner</th>
                     <th style={{ width: '18%' }}>Start</th>
                     <th style={{ width: '18%' }}>End</th>
                     <th style={{ width: '8%' }}>Duration</th>
@@ -408,16 +399,6 @@ export default function Timings({ repoUrl, ghToken, setGhToken, owner }) {
                               }</div>
                               {t.description && <div style={{ color: '#6b7c88', marginTop: 6, fontSize: 13 }}>{t.description}</div>}
                             </div>
-                          )}
-                        </td>
-                        <td data-label="Owner">
-                          {editingRow === idx ? (
-                            <select value={form.owner} onChange={e => { const nv = { ...form, owner: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} style={{ padding: '8px 10px', borderRadius: 6 }}>
-                              <option value="mine">Mine</option>
-                              <option value="partner">Partner</option>
-                            </select>
-                          ) : (
-                            <span className={`owner-badge ${t.owner === 'partner' ? 'owner-partner' : 'owner-mine'}`}>{t.owner === 'partner' ? 'Partner' : 'Mine'}</span>
                           )}
                         </td>
                         <td data-label="Start">{editingRow === idx ? (

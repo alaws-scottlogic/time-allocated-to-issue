@@ -154,13 +154,13 @@ async function fetchIssueTitleFromGitHub(repoUrl, issue) {
 app.post('/api/select', (req, res) => {
   // body: { issue: number|string, label?: string }
   console.log('Select API called with body:', req.body);
-  const { issue: rawIssue, repoUrl, owner, otherLabel } = req.body;
+  const { issue: rawIssue, repoUrl, otherLabel } = req.body;
   const now = new Date().toISOString();
   const timings = readTimings();
 
   if (activeSelection) {
     // close previous interval — ensure we assign an id and carry owner
-    const closed = Object.assign({ id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8) }, { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null, owner: (owner || activeSelection.owner) || 'mine' });
+    const closed = Object.assign({ id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8) }, { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null });
     timings.push(closed);
     // attempt to fill missing title asynchronously
     if (!closed.issueTitle && closed.issue) {
@@ -191,7 +191,7 @@ app.post('/api/select', (req, res) => {
   }
 
   // start new interval (force one active)
-  activeSelection = { issue, start: now, repoUrl: repoUrl || DETECTED_REPO_URL || null, owner: owner || 'mine' };
+  activeSelection = { issue, start: now, repoUrl: repoUrl || DETECTED_REPO_URL || null };
   writeTimings(timings);
 
   return res.json({ status: 'ok', active: activeSelection });
@@ -201,7 +201,7 @@ app.post('/api/stop', (req, res) => {
   const now = new Date().toISOString();
   const timings = readTimings();
   if (activeSelection) {
-    const closed = Object.assign({ id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8) }, { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null, owner: activeSelection.owner || 'mine' });
+    const closed = Object.assign({ id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8) }, { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null });
     timings.push(closed);
     activeSelection = null;
     writeTimings(timings);
@@ -237,10 +237,7 @@ app.get('/api/timings', (req, res) => {
       changed = true;
       out = Object.assign({}, out, { repoUrl: DETECTED_REPO_URL || null });
     }
-    if (!('owner' in out) || out.owner === undefined || out.owner === null) {
-      changed = true;
-      out = Object.assign({}, out, { owner: 'mine' });
-    }
+    
     return out;
   });
   if (changed) writeTimings(updated);
@@ -262,7 +259,7 @@ app.post('/api/timings', (req, res) => {
     start: payload.start,
     end: payload.end || null,
     repoUrl: payload.repoUrl || null,
-    owner: payload.owner || 'mine'
+    
   };
   // attempt to resolve title synchronously-ish (returns null on failure)
   fetchIssueTitleFromGitHub(entry.repoUrl, entry.issue).then(title => {
@@ -287,7 +284,10 @@ app.put('/api/timings/:id', (req, res) => {
   const idx = timings.findIndex(t => String(t.id) === String(id));
   if (idx === -1) return res.status(404).json({ error: 'not found' });
 
-  const candidate = Object.assign({}, timings[idx], payload);
+  // Merge payload but ignore owner if present
+  const cleaned = Object.assign({}, payload);
+  if ('owner' in cleaned) delete cleaned.owner;
+  const candidate = Object.assign({}, timings[idx], cleaned);
   const errors = validateTimingPayload(candidate);
   if (errors.length > 0) return res.status(400).json({ errors });
 
@@ -340,10 +340,6 @@ if (startupTok) {
       if (!('repoUrl' in out) || out.repoUrl === undefined || out.repoUrl === null) {
         changed = true;
         out = Object.assign({}, out, { repoUrl: DETECTED_REPO_URL || null });
-      }
-      if (!('owner' in out) || out.owner === undefined || out.owner === null) {
-        changed = true;
-        out = Object.assign({}, out, { owner: 'mine' });
       }
       return out;
     });
