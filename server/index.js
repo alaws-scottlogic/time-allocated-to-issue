@@ -15,6 +15,7 @@ app.use(express.json());
 // to inspect and edit during development.
 const DATA_DIR = path.join(__dirname, '..', 'data');
 const TIMINGS_FILE = path.join(DATA_DIR, 'timings.json');
+const EOD_FILE = path.join(DATA_DIR, 'eod.json');
 
 // Try to detect the repository URL so we can store it with every timing entry.
 function detectRepoUrl() {
@@ -46,6 +47,7 @@ const DETECTED_REPO_URL = detectRepoUrl();
 
 if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 if (!fs.existsSync(TIMINGS_FILE)) fs.writeFileSync(TIMINGS_FILE, '[]');
+if (!fs.existsSync(EOD_FILE)) fs.writeFileSync(EOD_FILE, '[]', 'utf-8');
 
 function readTimings() {
   try {
@@ -57,6 +59,19 @@ function readTimings() {
 
 function writeTimings(data) {
   fs.writeFileSync(TIMINGS_FILE, JSON.stringify(data, null, 2));
+}
+
+function readEodData() {
+  try {
+    const data = fs.readFileSync(EOD_FILE, 'utf8');
+    return data ? JSON.parse(data) : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function writeEodData(data) {
+  fs.writeFileSync(EOD_FILE, JSON.stringify(data, null, 2));
 }
 
 let activeSelection = null;
@@ -224,24 +239,37 @@ app.post('/api/stop', (req, res) => {
 
 // Timings CRUD
 app.get('/api/timings', (req, res) => {
-  const list = readTimings();
-  // Backfill missing ids for legacy entries so client can reliably reference them.
-  let changed = false;
-  const updated = list.map(item => {
-    let out = item;
-    if (!out.id) {
-      changed = true;
-      out = Object.assign({ id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8) }, out);
-    }
-    if (!('repoUrl' in out) || out.repoUrl === undefined || out.repoUrl === null) {
-      changed = true;
-      out = Object.assign({}, out, { repoUrl: DETECTED_REPO_URL || null });
-    }
-    
-    return out;
-  });
-  if (changed) writeTimings(updated);
-  return res.json(updated);
+  res.json(readTimings());
+});
+
+app.get('/api/eod', (req, res) => {
+  const eodData = readEodData();
+  const today = new Date().toISOString().split('T')[0];
+  const todayEntry = eodData.find(entry => entry.date === today);
+  if (todayEntry) {
+    res.json(todayEntry);
+  } else {
+    res.status(404).json({ message: 'No entry for today' });
+  }
+});
+
+app.post('/api/eod', (req, res) => {
+  const { date, ...tasks } = req.body;
+  if (!date) {
+    return res.status(400).json({ message: 'Date is required' });
+  }
+
+  const eodData = readEodData();
+  const index = eodData.findIndex(entry => entry.date === date);
+
+  if (index !== -1) {
+    eodData[index] = { ...eodData[index], ...tasks, date };
+  } else {
+    eodData.push({ date, ...tasks });
+  }
+
+  writeEodData(eodData);
+  res.status(200).json({ message: 'EOD report saved' });
 });
 
 app.post('/api/timings', (req, res) => {
