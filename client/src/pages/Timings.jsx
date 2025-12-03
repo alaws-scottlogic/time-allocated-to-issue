@@ -19,6 +19,8 @@ function localInputToIso(value) {
 }
 
 export default function Timings({ repoUrl, ghToken, setGhToken }) {
+  const [googleAuthStatus, setGoogleAuthStatus] = useState({ loading: true, authenticated: false });
+  const [serverConfig, setServerConfig] = useState({ googleClientId: '', googleRedirectUri: '' });
   const [timings, setTimings] = useState([]);
   const [persistToken, setPersistToken] = useState(false);
   // selectedIssue controls the listing filter; default to 'all'
@@ -51,6 +53,38 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   }
 
   useEffect(() => { load(); }, []);
+
+  // fetch server config for OAuth details
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch('/api/config');
+        if (!res.ok) return;
+        const j = await res.json();
+        if (mounted) setServerConfig(j);
+      } catch (e) { /* ignore */ }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Poll server for Google auth status for UI button
+  useEffect(() => {
+    let mounted = true;
+    async function check() {
+      try {
+        const res = await fetch('/api/auth/status');
+        if (!res.ok) throw new Error('status failed');
+        const j = await res.json();
+        if (mounted) setGoogleAuthStatus({ loading: false, authenticated: !!j.authenticated });
+      } catch (err) {
+        if (mounted) setGoogleAuthStatus({ loading: false, authenticated: false });
+      }
+    }
+    check();
+    const id = setInterval(check, 5000);
+    return () => { mounted = false; clearInterval(id); };
+  }, []);
 
   // load selected issue and other label from localStorage so add form can default
   useEffect(() => {
@@ -327,6 +361,18 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
 
       <div className="timings-header">
         <h2>Timings</h2>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {!googleAuthStatus.loading && !googleAuthStatus.authenticated && (
+            <button className="btn btn-outline" onClick={() => {
+              const clientId = serverConfig && serverConfig.googleClientId ? serverConfig.googleClientId : '846056206184-qqt3e0cj82g3sbvhu27guna8rprp46hr.apps.googleusercontent.com';
+              const redirectUri = serverConfig && serverConfig.googleRedirectUri ? serverConfig.googleRedirectUri : 'http://localhost:4000/auth/google/callback';
+              const scope = encodeURIComponent('openid email profile https://www.googleapis.com/auth/spreadsheets');
+              const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
+              window.location.href = url;
+            }}>Authorize Google</button>
+          )}
+          {googleAuthStatus.authenticated && <div style={{ color:'#055a9a', fontWeight:600 }}>Google Sheets connected</div>}
+        </div>
       </div>
 
       <section>

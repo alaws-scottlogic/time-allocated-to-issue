@@ -8,6 +8,8 @@ export default function App() {
   const [issues, setIssues] = useState([]);
   const [active, setActive] = useState(null);
   const [repoUrl, setRepoUrl] = useState(() => localStorage.getItem('repoUrl') || '');
+  const [authStatus, setAuthStatus] = useState({ authenticated: null });
+  const [serverConfig, setServerConfig] = useState({ googleClientId: '', googleRedirectUri: '' });
   const [ghToken, setGhToken] = useState(() => {
     const envToken = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GITHUB_TOKEN) || '';
     return envToken || localStorage.getItem('github_token') || '';
@@ -105,6 +107,51 @@ export default function App() {
   useEffect(() => {
     const saved = localStorage.getItem('repoUrl');
     if (saved) setRepoUrl(saved);
+    // check Google auth status on load
+    (async () => {
+      // fetch server-provided config so we can build OAuth URLs server-side
+      try {
+        const cfgRes = await fetch('/api/config');
+        if (cfgRes.ok) setServerConfig(await cfgRes.json());
+      } catch (e) { /* ignore */ }
+
+      try {
+        const res = await fetch('/api/auth/status');
+        if (!res.ok) return setAuthStatus({ authenticated: false });
+        const body = await res.json();
+        setAuthStatus({ authenticated: Boolean(body && body.authenticated), expires_at: body && body.expires_at });
+        // If we were redirected after OAuth, parse query params to show immediate feedback
+          try {
+            const params = new URLSearchParams(window.location.search);
+            const auth = params.get('auth');
+            if (auth === 'success') {
+              const expires_at = params.get('expires_at');
+              const email = params.get('email');
+              setAuthStatus({ authenticated: true, expires_at: expires_at || (body && body.expires_at) || null, email: email || null });
+              // Clean up query params to keep URLs tidy
+              if (window && window.history && window.history.replaceState) {
+                const url = new URL(window.location.href);
+                url.search = '';
+                window.history.replaceState({}, '', url.toString());
+              }
+            } else if (auth === 'failed') {
+              setAuthStatus({ authenticated: false });
+            }
+          } catch (e) { /* ignore */ }
+        // Optionally auto-redirect to server auth route for user convenience
+        try {
+          const auto = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_AUTO_OPEN_AUTH) || null;
+          const shouldAuto = auto === 'true' || (auto === null && window && window.location.hostname === 'localhost');
+          const already = sessionStorage.getItem('auth_redirected');
+          if (!body.authenticated && shouldAuto && !already) {
+            sessionStorage.setItem('auth_redirected', '1');
+            window.location.href = '/auth/google';
+          }
+        } catch (e) { /* ignore */ }
+      } catch (e) {
+        setAuthStatus({ authenticated: false });
+      }
+    })();
   }, []);
 
   useEffect(() => {
@@ -145,9 +192,26 @@ export default function App() {
               if (href) window.open(href, '_blank');
             } catch (e) {}
           }} style={{ padding: '6px 10px' }}>View Google Sheet</button>
+          
           {/* status removed */}
         </div>
       </header>
+
+      {authStatus.authenticated === false && (
+        <div style={{ padding: 12, marginBottom: 12, border: '1px solid #ffd7b5', background: '#fff4e6', borderRadius: 6 }}>
+          <strong style={{ display: 'block', marginBottom: 6 }}>Google Sheets not authorized</strong>
+          <div style={{ marginBottom: 8 }}>To save timings to Google Sheets you need to authorize this app to access your Google account.</div>
+          <div>
+            <button type="button" onClick={() => {
+              const clientId = serverConfig && serverConfig.googleClientId ? serverConfig.googleClientId : '846056206184-qqt3e0cj82g3sbvhu27guna8rprp46hr.apps.googleusercontent.com';
+              const redirectUri = serverConfig && serverConfig.googleRedirectUri ? serverConfig.googleRedirectUri : 'http://localhost:4000/auth/google/callback';
+              const scope = encodeURIComponent('openid email profile https://www.googleapis.com/auth/spreadsheets');
+              const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
+              window.location.href = url;
+            }} style={{ padding: '8px 12px', background: '#2b7cff', color: '#fff', border: 'none', borderRadius: 4 }}>Authorize with Google</button>
+          </div>
+        </div>
+      )}
 
       {view === 'timings' && <TimingsPage onBack={() => setView('home')} repoUrl={repoUrl} ghToken={ghToken} setGhToken={setGhToken} />}
       {view === 'eod' && <EodPage onBack={() => setView('home')} />}

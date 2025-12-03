@@ -4,13 +4,117 @@ const cors = require('cors');
 const fetch = require('node-fetch');
 const { execSync } = require('child_process');
 const sheets = require('./lib/sheets');
+const path = require('path');
+const { google } = require('googleapis');
+const fs = require('fs');
+
+const tokenStore = require('./lib/tokenStore');
+
+// Create OAuth2 client and wire it to sheets when tokens are available
+function initOAuthClient() {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/auth/google/callback';
+  if (!clientId || !clientSecret) return null;
+  const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+  return oauth2Client;
+}
+
 
 const app = express();
 // Allow Authorization header through CORS
 app.use(cors({ exposedHeaders: ['Authorization'] }));
 app.use(express.json());
 
-// Storage now uses Google Sheets via service account; see `server/lib/sheets.js`.
+// Initialize OAuth client at startup (tokens loaded asynchronously below)
+const oauthClient = initOAuthClient();
+
+// Attempt to load tokens from the tokenStore and set credentials when available
+(async function loadPersistedTokens() {
+  try {
+    if (!oauthClient) return;
+    const tokens = await tokenStore.loadTokens();
+    if (tokens) {
+      oauthClient.setCredentials(tokens);
+      sheets.setAuthClient(oauthClient);
+    }
+  } catch (e) { /* ignore */ }
+})();
+
+// Route: start OAuth flow
+app.get('/auth/google', (req, res) => {
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/auth/google/callback';
+  const clientAppUrl = process.env.CLIENT_BASE_URL || 'http://localhost:5173';
+  if (!clientId || !clientSecret) return res.status(500).send('GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be set');
+  // Request openid/email/profile so we can verify identity and return an ID token
+  const scopes = ['openid', 'email', 'profile', 'https://www.googleapis.com/auth/spreadsheets'];
+  const hd = req.query.hd || process.env.GOOGLE_AUTH_HOSTED_DOMAIN || undefined;
+  const oauth2Endpoint = 'https://accounts.google.com/o/oauth2/v2/auth';
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: scopes.join(' '),
+    access_type: 'offline',
+    prompt: 'consent select_account',
+    include_granted_scopes: 'true',
+  });
+  if (hd) params.set('hd', hd);
+  // Allow a return URL so client can be redirected back after auth (optional)
+  if (req.query.returnTo) params.set('state', encodeURIComponent(req.query.returnTo));
+  const url = `${oauth2Endpoint}?${params.toString()}`;
+  res.redirect(url);
+});
+
+// OAuth callback
+app.get('/auth/google/callback', async (req, res) => {
+  const code = req.query.code;
+  const state = req.query.state ? decodeURIComponent(req.query.state) : null;
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/auth/google/callback';
+  const clientAppUrl = process.env.CLIENT_BASE_URL || 'http://localhost:5173';
+  if (!code) {
+    const redirect = `${clientAppUrl}/?auth=failed`;
+    return res.redirect(redirect);
+  }
+  try {
+    const oauth2Client = new google.auth.OAuth2(clientId, clientSecret, redirectUri);
+    const { tokens } = await oauth2Client.getToken(code);
+    oauth2Client.setCredentials(tokens);
+    // persist tokens in store
+    try { await tokenStore.saveTokens(tokens); } catch (e) { /* ignore */ }
+    // wire into sheets and also update the main oauthClient if present
+    sheets.setAuthClient(oauth2Client);
+    if (oauthClient) oauthClient.setCredentials(tokens);
+
+    // Verify ID token to get user info (email/name) when available
+    let idPayload = null;
+    try {
+      if (tokens.id_token && oauth2Client.verifyIdToken) {
+        const ticket = await oauth2Client.verifyIdToken({ idToken: tokens.id_token, audience: clientId }).catch(() => null);
+        if (ticket && ticket.getPayload) {
+          idPayload = ticket.getPayload();
+        }
+      }
+    } catch (e) { idPayload = null; }
+
+    // Redirect back to client app with success state. Include expiry and user info if available.
+    const expires = tokens.expiry_date ? `&expires_at=${encodeURIComponent(tokens.expiry_date)}` : '';
+    const userPart = idPayload && idPayload.email ? `&email=${encodeURIComponent(idPayload.email)}&name=${encodeURIComponent(idPayload.name || '')}` : '';
+    const redirectTo = state || clientAppUrl;
+    const glue = redirectTo.includes('?') ? '&' : '?';
+    return res.redirect(`${redirectTo}${glue}auth=success${expires}${userPart}`);
+  } catch (err) {
+    const clientAppUrl2 = process.env.CLIENT_BASE_URL || 'http://localhost:5173';
+    const redirect = `${clientAppUrl2}/?auth=failed`;
+    return res.redirect(redirect);
+  }
+});
+
+// Storage now uses Google Sheets via OAuth; see `server/lib/sheets.js`.
 
 // Try to detect the repository URL so we can store it with every timing entry.
 function detectRepoUrl() {
@@ -276,14 +380,19 @@ if (startupTok) {
 }
 // Ensure basic sheet headers exist on startup
 (async function startupInit() {
-  try { await sheets.ensureHeaders(); } catch (e) { /* ignore */ }
+  try {
+    // Only attempt to ensure headers if oauthClient has credentials (tokens)
+    if (oauthClient && oauthClient.credentials && (oauthClient.credentials.access_token || oauthClient.credentials.refresh_token)) {
+      await sheets.ensureHeaders();
+    }
+  } catch (e) { /* ignore */ }
 })();
 app.get('/api/eod', async (req, res) => {
   try {
     const rows = await sheets.getEod();
     return res.json(rows);
   } catch (err) {
-    return res.status(500).json({ error: 'eod read failed' });
+    return res.status(500).json({ error: 'eod read failed', details: err && err.message ? err.message : String(err) });
   }
 });
 app.post('/api/eod', async (req, res) => {
@@ -295,10 +404,40 @@ app.post('/api/eod', async (req, res) => {
     await sheets.appendEodTable(payload.date, payload, categories);
     return res.status(201).json({ status: 'ok' });
   } catch (err) {
-    return res.status(500).json({ error: 'eod write failed' });
+    return res.status(500).json({ error: 'eod write failed' + err });
   }
 });
 app.listen(PORT, () => {});
+
+// On startup, if no tokens are present, prompt the developer to authorize.
+(async function promptForAuthIfNeeded() {
+  try {
+    if (!oauthClient) return;
+    const tokens = await tokenStore.loadTokens();
+    if (!tokens) {
+      const clientId = process.env.GOOGLE_CLIENT_ID;
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
+      const redirectUri = process.env.GOOGLE_REDIRECT_URI || `http://localhost:${PORT}/auth/google/callback`;
+      if (!clientId || !clientSecret) {
+        console.warn('Google OAuth not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable Sheets integration.');
+        return;
+      }
+      const scopes = ['https://www.googleapis.com/auth/spreadsheets'];
+      const oauth2Endpoint = 'https://accounts.google.com/o/oauth2/v2/auth';
+      const params = new URLSearchParams({
+        client_id: clientId,
+        redirect_uri: redirectUri,
+        response_type: 'code',
+        scope: scopes.join(' '),
+        access_type: 'offline',
+        prompt: 'consent',
+      });
+      if (process.env.AUTO_OPEN_AUTH === 'true') {
+        try { require('open')(url); } catch (e) { /* ignore */ }
+      }
+    }
+  } catch (e) { /* ignore */ }
+})();
 
 // Convenience: expose Google Sheet URL for quick access from the client
 app.get('/api/sheets/url', (req, res) => {
@@ -328,3 +467,36 @@ app.get('/api/sheets/links', async (req, res) => {
     return res.json({ base, timings: base, eod: base });
   }
 });
+
+// Expose minimal server-side config (from dotenv) for the client to build OAuth URLs
+app.get('/api/config', (req, res) => {
+  try {
+    const cfg = {
+      googleClientId: process.env.GOOGLE_CLIENT_ID || '',
+      googleRedirectUri: process.env.GOOGLE_REDIRECT_URI || 'http://localhost:4000/auth/google/callback',
+      clientBaseUrl: process.env.CLIENT_BASE_URL || 'http://localhost:5173',
+    };
+    return res.json(cfg);
+  } catch (err) {
+    return res.status(500).json({ error: 'could not read config' });
+  }
+});
+
+// Expose auth status for the UI so clients can show an authorize button
+app.get('/api/auth/status', async (req, res) => {
+  try {
+    // check token store first
+    const tokens = await tokenStore.loadTokens();
+    if (tokens) {
+      return res.json({ authenticated: true, expires_at: tokens.expiry_date || null });
+    }
+    // fallback to checking the in-memory oauthClient credentials
+    if (oauthClient && oauthClient.credentials && (oauthClient.credentials.access_token || oauthClient.credentials.refresh_token)) {
+      return res.json({ authenticated: true, expires_at: oauthClient.credentials.expiry_date || null });
+    }
+    return res.json({ authenticated: false });
+  } catch (err) {
+    return res.status(500).json({ authenticated: false, error: err && err.message ? err.message : String(err) });
+  }
+});
+

@@ -5,30 +5,18 @@ const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
 const TIMINGS_SHEET = process.env.GOOGLE_SHEETS_TIMINGS_SHEET || 'Timings';
 const EOD_SHEET = process.env.GOOGLE_SHEETS_EOD_SHEET || 'EOD';
 
-function getJwtClient() {
-  let creds = null;
-  const keyPath = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_PATH;
-  const keyJson = process.env.GOOGLE_SERVICE_ACCOUNT_KEY_JSON;
-  if (keyPath && fs.existsSync(keyPath)) {
-    creds = JSON.parse(fs.readFileSync(keyPath, 'utf8'));
-  } else if (keyJson) {
-    creds = typeof keyJson === 'string' ? JSON.parse(keyJson) : keyJson;
-  } else {
-    throw new Error('Missing GOOGLE_SERVICE_ACCOUNT_KEY_JSON or GOOGLE_SERVICE_ACCOUNT_KEY_PATH env');
-  }
-  const jwt = new google.auth.JWT({
-    email: creds.client_email,
-    key: creds.private_key,
-    scopes: ['https://www.googleapis.com/auth/spreadsheets'],
-  });
-  return jwt;
+// The module expects an external auth client (OAuth2) to be provided via `setAuthClient`.
+// This keeps auth concerns outside this file and allows an OAuth flow to supply tokens.
+let sharedAuthClient = null;
+
+function setAuthClient(authClient) {
+  sharedAuthClient = authClient;
 }
 
 async function getSheets() {
-  if (!SPREADSHEET_ID) throw new Error('Missing GOOGLE_SHEETS_SPREADSHEET_ID env');
-  const auth = getJwtClient();
-  await auth.authorize();
-  return google.sheets({ version: 'v4', auth });
+  if (!SPREADSHEET_ID) throw new Error('Missing GOOGLE_SHEETS_SPREADSHEET_ID environment variable');
+  if (!sharedAuthClient) throw new Error('No Google auth available: setAuthClient(oauth2Client) with valid tokens or run /auth/google to authorize');
+  return google.sheets({ version: 'v4', auth: sharedAuthClient });
 }
 
 function formatDateForSheets(iso) {
@@ -317,6 +305,8 @@ module.exports = {
   appendEodTable,
   ensureEodHeaders,
 };
+
+module.exports.setAuthClient = setAuthClient;
 
 // Utility to resolve deep links to sheet tabs by title
 module.exports.getSheetLinks = async function getSheetLinks() {

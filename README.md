@@ -25,22 +25,24 @@ Usage
 -----
 -  By default, the application runs at [`http://localhost:5173`](http://localhost:5173).
 - Provide a list of comma-separated GitHub issue numbers in the UI and select an issue using the radio buttons.
-- Storage: timing intervals and EOD entries are written to Google Sheets via a service account (no local JSON file).
+ - Storage: timing intervals and EOD entries are written to Google Sheets via OAuth2. The server supports an interactive OAuth flow that stores tokens locally for development.
 
 Google Sheets setup
 -------------------
 - Create a spreadsheet with tabs named `Timings` and `EOD`.
-- Share the spreadsheet with the service account `client_email` (Editor).
-- Set the following environment variables before starting the server:
 
-You can configure via a `.env` (loaded by `dotenv`). Example:
+You can configure via a `.env` (loaded by `dotenv`). Required env vars for OAuth flow:
 
 ```
-GOOGLE_SERVICE_ACCOUNT_KEY_JSON=<service-account-key-json>
+GOOGLE_CLIENT_ID=<your-google-client-id>
+GOOGLE_CLIENT_SECRET=<your-google-client-secret>
+GOOGLE_REDIRECT_URI=http://localhost:4000/auth/google/callback
 GOOGLE_SHEETS_SPREADSHEET_ID=<your-spreadsheet-id>
 ```
-
 where `spreadsheet-id` is found in the URL of your Google Sheets document `https://docs.google.com/spreadsheets/d/<spreadsheet-id>/edit`.
+
+- To obtain `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, create an OAuth 2.0 Client ID in Google Cloud Console and add the redirect URI above to its Authorized redirect URIs.
+- Run the server, then open `http://localhost:4000/auth/google` to start the OAuth consent flow. Tokens will be saved to `server/credentials.json` for local development.
 
 GitHub token (optional)
 -----------------------
