@@ -8,6 +8,8 @@ export default function App() {
   const [issues, setIssues] = useState([]);
   const [active, setActive] = useState(null);
   const [repoUrl, setRepoUrl] = useState(() => localStorage.getItem('repoUrl') || '');
+  const [authStatus, setAuthStatus] = useState({ authenticated: null });
+  const [serverConfig, setServerConfig] = useState({ googleClientId: '', googleRedirectUri: '' });
   const [ghToken, setGhToken] = useState(() => {
     const envToken = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_GITHUB_TOKEN) || '';
     return envToken || localStorage.getItem('github_token') || '';
@@ -16,6 +18,24 @@ export default function App() {
   const [error, setError] = useState('');
   const [otherLabel, setOtherLabel] = useState(() => localStorage.getItem('other_issue_label') || 'Other');
   const [otherLabel2, setOtherLabel2] = useState(() => localStorage.getItem('other_issue_label_2') || 'Custom Time Entry');
+
+  // Load saved issues on mount
+  useEffect(() => {
+    async function loadIssues() {
+      try {
+        const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+        if (spreadsheetId) {
+          const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+          const sheetsClient = (await import('./lib/sheetsClient')).default;
+          const savedIssues = await sheetsClient.getIssues(spreadsheetId, clientId).catch(() => []);
+          if (Array.isArray(savedIssues) && savedIssues.length > 0) setIssues(savedIssues);
+        }
+      } catch (e) {
+        console.error('Failed to load issues', e);
+      }
+    }
+    loadIssues();
+  }, []);
 
   async function addIssues(override) {
     const raw = (typeof override === 'string' && override.length > 0) ? override : input;
@@ -53,9 +73,10 @@ export default function App() {
 
     const fetched = await Promise.all(nums.map(async n => {
       try {
-        const headers = {};
+        const headers = { 'User-Agent': 'time-allocated-app' };
         if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-        const res = await fetch(`/api/issue/${owner}/${repo}/${n}/title`, { headers });
+        const url = `https://api.github.com/repos/${owner}/${repo}/issues/${n}`;
+        const res = await fetch(url, { headers });
         if (!res.ok) return { number: n, title: 'Lookup failed' };
         const body = await res.json();
         return { number: n, title: body.title };
@@ -64,6 +85,17 @@ export default function App() {
       }
     }));
     setIssues(fetched);
+    // Save to spreadsheet (if configured)
+    try {
+      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      if (spreadsheetId) {
+        const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+        const sheetsClient = (await import('./lib/sheetsClient')).default;
+        await sheetsClient.saveIssues(spreadsheetId, fetched, clientId);
+      }
+    } catch (e) {
+      console.error('Failed to save issues', e);
+    }
     // previously setStatus('ready') removed
     setError('');
     setActive(null);
@@ -79,10 +111,22 @@ export default function App() {
       // Show the radio as selected immediately
       setActive('stop');
       try {
-        const headers = { 'Content-Type': 'application/json' };
-        if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-        await fetch('/api/stop', { method: 'POST', headers });
+        // Stop: persist the active selection stored in sessionStorage to the spreadsheet
+        const activeJson = sessionStorage.getItem('activeSelection');
+        if (activeJson) {
+          const activeObj = JSON.parse(activeJson);
+          const now = new Date().toISOString();
+          const duration = Math.round((Date.parse(now) - Date.parse(activeObj.start)) / 1000);
+          const closed = { issue: activeObj.issue, start: activeObj.start, duration, repoUrl: activeObj.repoUrl || null };
+          const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+          if (spreadsheetId) {
+            const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+            const sheetsClient = (await import('./lib/sheetsClient')).default;
+            await sheetsClient.appendTiming(spreadsheetId, closed, clientId);
+          }
+        }
         // Clear active after stopping
+        sessionStorage.removeItem('activeSelection');
         setActive(null);
         try { localStorage.setItem('selected_issue', ''); } catch (err) {}
       } catch (e) {
@@ -94,33 +138,134 @@ export default function App() {
     const payload = { issue, repoUrl };
     if (issue === 'other') payload.otherLabel = otherLabel;
     if (issue === 'other2') payload.otherLabel = otherLabel2;
-    const res = await fetch('/api/select', { method: 'POST', headers, body: JSON.stringify(payload) });
-    if (res.ok) {
-      setActive(issue);
-      try { localStorage.setItem('selected_issue', issue); } catch (err) { }
-      // previously setStatus('ready') removed
-    }
+    // Implement select locally: close any existing active selection and start a new one stored in sessionStorage
+    try {
+      const activeJson = sessionStorage.getItem('activeSelection');
+      if (activeJson) {
+        const activeObj = JSON.parse(activeJson);
+        const now = new Date().toISOString();
+        const duration = Math.round((Date.parse(now) - Date.parse(activeObj.start)) / 1000);
+        const closed = { issue: activeObj.issue, start: activeObj.start, duration, repoUrl: activeObj.repoUrl || null };
+        const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+        if (spreadsheetId) {
+          const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+          const sheetsClient = (await import('./lib/sheetsClient')).default;
+          await sheetsClient.appendTiming(spreadsheetId, closed, clientId).catch(() => {});
+        }
+      }
+    } catch (e) { /* ignore */ }
+    // Start new interval and persist in sessionStorage
+    const newActive = { issue, start: new Date().toISOString(), repoUrl };
+    sessionStorage.setItem('activeSelection', JSON.stringify(newActive));
+    setActive(issue);
+    try { localStorage.setItem('selected_issue', issue); } catch (err) { }
   }
 
   useEffect(() => {
     const saved = localStorage.getItem('repoUrl');
     if (saved) setRepoUrl(saved);
+    // check Google auth status on load
+    (async () => {
+      // fetch server-provided config so we can build OAuth URLs server-side
+      try {
+        // derive config from env vars
+        const cfg = { googleClientId: (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || '', googleRedirectUri: (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || '' };
+        setServerConfig(cfg);
+      } catch (e) { /* ignore */ }
+
+      // Detect OAuth redirect code and exchange for tokens
+      try {
+        const params = new URLSearchParams(window.location.search);
+        const code = params.get('code');
+        if (code) {
+          // Clear search params from URL
+          if (window && window.history && window.history.replaceState) {
+            const url = new URL(window.location.href);
+            url.search = '';
+            window.history.replaceState({}, '', url.toString());
+          }
+          const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || cfg.googleClientId;
+          const redirectUri = (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || cfg.googleRedirectUri;
+          const tokenStore = await import('./lib/tokenStore');
+          const tokens = await tokenStore.exchangeCodeForTokens({ code, clientId, redirectUri });
+          // compute expiry_date already handled in tokenStore
+          // create spreadsheet if missing
+          const spreadId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+          const sheetsClient = (await import('./lib/sheetsClient')).default;
+          const createdId = await sheetsClient.createSpreadsheetIfMissing(spreadId, clientId).catch(() => null);
+          if (createdId) localStorage.setItem('spreadsheetId', createdId);
+          setAuthStatus({ authenticated: true, expires_at: tokens.expiry_date || null });
+        }
+      } catch (e) {
+        /* ignore */
+      }
+
+      try {
+        const tokenStore = await import('./lib/tokenStore');
+        const tokens = tokenStore.loadTokens();
+        if (tokens) setAuthStatus({ authenticated: true, expires_at: tokens.expiry_date || null });
+        else setAuthStatus({ authenticated: false });
+        // If we were redirected after OAuth, parse query params to show immediate feedback
+          try {
+            const params = new URLSearchParams(window.location.search);
+            const auth = params.get('auth');
+            if (auth === 'success') {
+              const expires_at = params.get('expires_at');
+              const email = params.get('email');
+              setAuthStatus({ authenticated: true, expires_at: expires_at || (body && body.expires_at) || null, email: email || null });
+              // Clean up query params to keep URLs tidy
+              if (window && window.history && window.history.replaceState) {
+                const url = new URL(window.location.href);
+                url.search = '';
+                window.history.replaceState({}, '', url.toString());
+              }
+            } else if (auth === 'failed') {
+              setAuthStatus({ authenticated: false });
+            }
+          } catch (e) { /* ignore */ }
+        // Optionally auto-redirect to server auth route for user convenience
+            try {
+              const auto = (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_AUTO_OPEN_AUTH) || null;
+              const shouldAuto = auto === 'true' || (auto === null && window && window.location.hostname === 'localhost');
+              const already = sessionStorage.getItem('auth_redirected');
+              if (!tokens && shouldAuto && !already) {
+                sessionStorage.setItem('auth_redirected', '1');
+                try {
+                  const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || (serverConfig && serverConfig.googleClientId) || '846056206184-qqt3e0cj82g3sbvhu27guna8rprp46hr.apps.googleusercontent.com';
+                  const redirectUri = (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || (serverConfig && serverConfig.googleRedirectUri) || 'http://localhost:5173/';
+                  const { buildAuthUrl } = await import('./lib/oauth');
+                  const url = await buildAuthUrl({ clientId, redirectUri });
+                  window.location.href = url;
+                } catch (e) { /* ignore */ }
+              }
+            } catch (e) { /* ignore */ }
+      } catch (e) {
+        setAuthStatus({ authenticated: false });
+      }
+    })();
   }, []);
 
   useEffect(() => {
     function handleUnload() {
       try {
-        const url = '/api/stop';
-        // Prefer sendBeacon for a reliable, non-blocking delivery on unload
-        if (navigator && navigator.sendBeacon) {
-          const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
-          navigator.sendBeacon(url, blob);
-        } else {
-          // Best-effort synchronous fetch (may be ignored by browsers)
-          const xhr = new XMLHttpRequest();
-          xhr.open('POST', url, false);
-          xhr.setRequestHeader('Content-Type', 'application/json');
-          try { xhr.send(JSON.stringify({})); } catch (e) { /* ignore */ }
+        // On unload, try to save an active selection to the spreadsheet via navigator.sendBeacon where possible
+        const activeJson = sessionStorage.getItem('activeSelection');
+        if (activeJson) {
+          try {
+            const activeObj = JSON.parse(activeJson);
+            const now = new Date().toISOString();
+            const duration = Math.round((Date.parse(now) - Date.parse(activeObj.start)) / 1000);
+            const closed = { issue: activeObj.issue, start: activeObj.start, duration, repoUrl: activeObj.repoUrl || null };
+            const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+            if (spreadsheetId && navigator && navigator.sendBeacon) {
+              const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+              // Best-effort: send to a simple endpointless beacon (note: Google Sheets API requires auth; beacon may not work)
+              // Fallback: persist to localStorage and rely on user to save later.
+              localStorage.setItem('stagedClosed', JSON.stringify({ spreadsheetId, closed, clientId }));
+            } else {
+              localStorage.setItem('stagedClosed', JSON.stringify({ closed }));
+            }
+          } catch (e) { /* ignore */ }
         }
       } catch (e) { /* ignore */ }
     }
@@ -138,16 +283,37 @@ export default function App() {
           <button onClick={() => setView('eod')} style={{ padding: '6px 10px' }}>End Of Day</button>
           <button onClick={async () => {
             try {
-              const res = await fetch('/api/sheets/links');
-              if (!res.ok) return;
-              const body = await res.json();
-              const href = (body && body.base) || '';
+              const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+              if (!spreadsheetId) return;
+              const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+              const sheetsClient = (await import('./lib/sheetsClient')).default;
+              const links = await sheetsClient.getSheetLinks(spreadsheetId, clientId).catch(() => null);
+              const href = links && links.base ? links.base : null;
               if (href) window.open(href, '_blank');
             } catch (e) {}
           }} style={{ padding: '6px 10px' }}>View Google Sheet</button>
+          
           {/* status removed */}
         </div>
       </header>
+
+      {authStatus.authenticated === false && (
+        <div style={{ padding: 12, marginBottom: 12, border: '1px solid #ffd7b5', background: '#fff4e6', borderRadius: 6 }}>
+          <strong style={{ display: 'block', marginBottom: 6 }}>Google Sheets not authorized</strong>
+          <div style={{ marginBottom: 8 }}>To save timings to Google Sheets you need to authorize this app to access your Google account.</div>
+          <div>
+            <button type="button" onClick={async () => {
+              try {
+                const clientId = serverConfig && serverConfig.googleClientId ? serverConfig.googleClientId : (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || '846056206184-qqt3e0cj82g3sbvhu27guna8rprp46hr.apps.googleusercontent.com';
+                const redirectUri = serverConfig && serverConfig.googleRedirectUri ? serverConfig.googleRedirectUri : (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || 'http://localhost:5173/';
+                const { buildAuthUrl } = await import('./lib/oauth');
+                const url = await buildAuthUrl({ clientId, redirectUri });
+                window.location.href = url;
+              } catch (e) { console.error('Auth start failed', e); }
+            }} style={{ padding: '8px 12px', background: '#2b7cff', color: '#fff', border: 'none', borderRadius: 4 }}>Authorize with Google</button>
+          </div>
+        </div>
+      )}
 
       {view === 'timings' && <TimingsPage onBack={() => setView('home')} repoUrl={repoUrl} ghToken={ghToken} setGhToken={setGhToken} />}
       {view === 'eod' && <EodPage onBack={() => setView('home')} />}
