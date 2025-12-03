@@ -28,7 +28,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ issue: '', start: '', end: '' });
+  const [form, setForm] = useState({ issue: '', start: '' });
   const [editingRow, setEditingRow] = useState(null); // index of the row being edited
   const [savingStatus, setSavingStatus] = useState({});
   const saveTimers = useRef({});
@@ -101,7 +101,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   }, [persistToken, ghToken]);
 
   function resetForm() {
-    setForm({ issue: '', start: '', end: '' });
+    setForm({ issue: '', start: '' });
     setError('');
   }
 
@@ -121,7 +121,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     } catch (err) {
       // ignore
     }
-    const payload = { issue: issueValue || null, start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null, repoUrl: repoUrl || null };
+    const payload = { issue: issueValue || null, start: localInputToIso(form.start), repoUrl: repoUrl || null };
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
@@ -142,7 +142,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
 
   function beginEdit(t, idx) {
     setEditingRow(idx);
-    setForm({ issue: t.issue || '', start: isoToLocalInput(t.start), end: t.end ? isoToLocalInput(t.end) : '' });
+    setForm({ issue: t.issue || '', start: isoToLocalInput(t.start) });
     setError('');
     const rowKey = t.id ?? idx;
     setSavingStatus(prev => {
@@ -158,7 +158,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     setSavingStatus(prev => ({ ...prev, [rowKey]: 'saving' }));
     saveTimers.current[rowKey] = setTimeout(async () => {
       try {
-        const payload = { issue: newValues.issue || null, start: localInputToIso(newValues.start), end: newValues.end ? localInputToIso(newValues.end) : null, repoUrl: repoUrl || null };
+      const payload = { issue: newValues.issue || null, start: localInputToIso(newValues.start), repoUrl: repoUrl || null };
         if (serverId) {
           const headers = { 'Content-Type': 'application/json' };
           if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
@@ -333,7 +333,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
         <form onSubmit={handleAdd} className="timings-add-form" aria-label="Add timing">
           <input className="input" placeholder="Issue ID or short title" value={form.issue} onChange={e => setForm({ ...form, issue: e.target.value })} />
           <input className="input" type="datetime-local" aria-label="Start" value={form.start} onChange={e => setForm({ ...form, start: e.target.value })} />
-          <input className="input" type="datetime-local" aria-label="End" value={form.end} onChange={e => setForm({ ...form, end: e.target.value })} />
+          {/* End date removed; duration is captured by the server */}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="submit" className="btn btn-primary">{editingRow != null ? 'Save' : 'Add'}</button>
             {editingRow != null && <button type="button" className="btn btn-outline" onClick={() => { setEditingRow(null); resetForm(); }}>Cancel</button>}
@@ -368,8 +368,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
                   <tr>
                     <th style={{ width: '40%' }}>Issue</th>
                     <th style={{ width: '18%' }}>Start</th>
-                    <th style={{ width: '18%' }}>End</th>
-                    <th style={{ width: '8%' }}>Duration</th>
+                    <th style={{ width: '18%' }}>Duration</th>
                     <th style={{ width: '6%' }}></th>
                   </tr>
                 </thead>
@@ -404,10 +403,14 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
                         <td data-label="Start">{editingRow === idx ? (
                           <input className="input" type="datetime-local" value={form.start} onChange={e => { const nv = { ...form, start: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} />
                         ) : new Date(t.start).toLocaleString()}</td>
-                        <td data-label="End">{editingRow === idx ? (
-                          <input className="input" type="datetime-local" value={form.end} onChange={e => { const nv = { ...form, end: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} />
-                        ) : (t.end ? new Date(t.end).toLocaleString() : '—')}</td>
-                        <td data-label="Duration">{formatDuration(t.start, t.end)} {savingStatus[t.id ?? idx] === 'saving' ? ' (saving...)' : savingStatus[t.id ?? idx] === 'saved' ? ' (saved)' : ''}</td>
+                        <td data-label="Duration">{t.duration != null ? (function() {
+                          const sec = Number(t.duration);
+                          if (Number.isNaN(sec)) return '—';
+                          const h = Math.floor(sec / 3600).toString();
+                          const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+                          const s2 = (sec % 60).toString().padStart(2, '0');
+                          return `${h}:${m}:${s2}`;
+                        })() : formatDuration(t.start, null)} {savingStatus[t.id ?? idx] === 'saving' ? ' (saving...)' : savingStatus[t.id ?? idx] === 'saved' ? ' (saved)' : ''}</td>
                         <td data-label="Actions">
                           {editingRow === idx ? (
                             <button aria-label="Done" title="Done" className="btn btn-primary" onClick={() => { setEditingRow(null); resetForm(); }}>

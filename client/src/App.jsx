@@ -74,6 +74,23 @@ export default function App() {
     const headers = { 'Content-Type': 'application/json' };
     if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
     // When selecting 'other' or 'other2', include the custom label so the server/client can use it
+    // Special-case 'stop' to call the server stop endpoint instead of selecting a new active issue
+    if (issue === 'stop') {
+      // Show the radio as selected immediately
+      setActive('stop');
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
+        await fetch('/api/stop', { method: 'POST', headers });
+        // Clear active after stopping
+        setActive(null);
+        try { localStorage.setItem('selected_issue', ''); } catch (err) {}
+      } catch (e) {
+        // ignore
+      }
+      return;
+    }
+
     const payload = { issue, repoUrl };
     if (issue === 'other') payload.otherLabel = otherLabel;
     if (issue === 'other2') payload.otherLabel = otherLabel2;
@@ -88,6 +105,27 @@ export default function App() {
   useEffect(() => {
     const saved = localStorage.getItem('repoUrl');
     if (saved) setRepoUrl(saved);
+  }, []);
+
+  useEffect(() => {
+    function handleUnload() {
+      try {
+        const url = '/api/stop';
+        // Prefer sendBeacon for a reliable, non-blocking delivery on unload
+        if (navigator && navigator.sendBeacon) {
+          const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
+          navigator.sendBeacon(url, blob);
+        } else {
+          // Best-effort synchronous fetch (may be ignored by browsers)
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', url, false);
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          try { xhr.send(JSON.stringify({})); } catch (e) { /* ignore */ }
+        }
+      } catch (e) { /* ignore */ }
+    }
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
   }, []);
 
 
@@ -167,6 +205,14 @@ export default function App() {
                     <input aria-label="other-label-2" placeholder="Custom Time Entry" value={otherLabel2} onChange={e => { setOtherLabel2(e.target.value); localStorage.setItem('other_issue_label_2', e.target.value); }} style={{ padding: '6px 8px', fontSize: 13, width: '100%', boxSizing: 'border-box' }} />
                   </div>
                   {active === 'other2' && <span style={{ fontSize: 12, padding: '4px 8px', background: '#eef9ff', borderRadius: 10 }}>Active</span>}
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0' }}>
+                  <input type="radio" name="issue" value="stop" checked={active === 'stop'} onChange={() => selectIssue('stop')} style={{ width: 18, height: 18 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>Stop</div>
+                    <div style={{ color: '#666', fontSize: 13 }}>Close the current timing interval</div>
+                  </div>
                 </label>
               </form>
             </div>

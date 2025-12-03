@@ -31,18 +31,77 @@ async function getSheets() {
   return google.sheets({ version: 'v4', auth });
 }
 
+function formatDateForSheets(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const YYYY = d.getUTCFullYear();
+  const MM = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const DD = String(d.getUTCDate()).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  const ss = String(d.getUTCSeconds()).padStart(2, '0');
+  return `${YYYY}-${MM}-${DD} ${hh}:${mm}:${ss}`;
+}
+
+function parseSheetsDateToIso(val) {
+  if (!val && val !== 0) return null;
+  // If already an ISO parseable string, return its ISO form
+  const parsed = Date.parse(val);
+  if (!Number.isNaN(parsed)) return new Date(parsed).toISOString();
+  // Try to parse common 'YYYY-MM-DD HH:MM:SS' (treat as UTC)
+  const m = /^\s*(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s*$/.exec(String(val));
+  if (m) {
+    const iso = `${m[1]}T${m[2]}Z`;
+    const p = Date.parse(iso);
+    if (!Number.isNaN(p)) return new Date(p).toISOString();
+  }
+  return null;
+}
+
+async function setTimingsColumnFormats(sheetsApi) {
+  try {
+    const meta = await sheetsApi.spreadsheets.get({ spreadsheetId: SPREADSHEET_ID });
+    const tabs = (meta && meta.data && meta.data.sheets) || [];
+    const timingTab = tabs.find(s => s.properties && s.properties.title === TIMINGS_SHEET);
+    if (!timingTab) return;
+    const sheetId = timingTab.properties.sheetId;
+    const requests = [
+      // Column B (index 1): Date/time
+      {
+        repeatCell: {
+          range: { sheetId, startRowIndex: 1, startColumnIndex: 1, endColumnIndex: 2 },
+          cell: { userEnteredFormat: { numberFormat: { type: 'DATE_TIME', pattern: 'yyyy-mm-dd hh:mm:ss' } } },
+          fields: 'userEnteredFormat.numberFormat',
+        },
+      },
+      // Column C (index 2): Number (duration seconds)
+      {
+        repeatCell: {
+          range: { sheetId, startRowIndex: 1, startColumnIndex: 2, endColumnIndex: 3 },
+          cell: { userEnteredFormat: { numberFormat: { type: 'NUMBER', pattern: '0' } } },
+          fields: 'userEnteredFormat.numberFormat',
+        },
+      },
+    ];
+    await sheetsApi.spreadsheets.batchUpdate({ spreadsheetId: SPREADSHEET_ID, requestBody: { requests } });
+  } catch (err) {
+    // non-fatal — formats are a convenience
+  }
+}
+
 async function ensureHeaders() {
   const sheets = await getSheets();
   // Timings sheet: do not store an explicit id column; use the sheet row number as the id.
-  const timingsHeader = ['issue number', 'start date', 'end date', 'duration'];
+  const timingsHeader = ['issue number', 'start date', 'duration'];
   try {
-    const t = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${TIMINGS_SHEET}!A1:D1` });
+    const t = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${TIMINGS_SHEET}!A1:C1` });
     const existing = (t.data.values && t.data.values[0]) || [];
     const same = existing.length === timingsHeader.length && existing.every((v, i) => v === timingsHeader[i]);
     if (!same) {
       await sheets.spreadsheets.values.update({
         spreadsheetId: SPREADSHEET_ID,
-        range: `${TIMINGS_SHEET}!A1:D1`,
+        range: `${TIMINGS_SHEET}!A1:C1`,
         valueInputOption: 'RAW',
         requestBody: { values: [timingsHeader] },
       });
@@ -50,11 +109,13 @@ async function ensureHeaders() {
   } catch (err) {
     await sheets.spreadsheets.values.update({
       spreadsheetId: SPREADSHEET_ID,
-      range: `${TIMINGS_SHEET}!A1:D1`,
+      range: `${TIMINGS_SHEET}!A1:C1`,
       valueInputOption: 'RAW',
       requestBody: { values: [timingsHeader] },
     });
   }
+  // Ensure column formats for readable dates and numeric durations
+  try { await setTimingsColumnFormats(sheets); } catch (e) { /* ignore */ }
   // Ensure EOD headers exist if previously used
   // Create EOD headers now using the standard category set so headings exist on startup
   try {
@@ -67,32 +128,32 @@ async function ensureHeaders() {
 
 async function getTimings() {
   const sheets = await getSheets();
-  const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${TIMINGS_SHEET}!A2:D` });
+  const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${TIMINGS_SHEET}!A2:C` });
   const rows = res.data.values || [];
   // id is the sheet row number (starting at 2 for first data row)
   return rows.map((r, i) => ({
     id: i + 2,
     issue: r[0] || null,
-    start: r[1] || null,
-    end: r[2] || null,
-    duration: r[3] != null && r[3] !== '' ? Number(r[3]) : null,
+    start: parseSheetsDateToIso(r[1]) || null,
+    duration: r[2] != null && r[2] !== '' ? Number(r[2]) : null,
   }));
 }
 
 async function appendTiming(entry) {
   const sheets = await getSheets();
-  // compute duration in seconds if end is present
-  const duration = entry.end ? Math.round((Date.parse(entry.end) - Date.parse(entry.start)) / 1000) : '';
+  // Accept either an explicit duration (seconds) or compute from an end timestamp for compatibility
+  const duration = entry.duration != null && entry.duration !== ''
+    ? Number(entry.duration)
+    : (entry.end ? Math.round((Date.parse(entry.end) - Date.parse(entry.start)) / 1000) : '');
   const row = [
     entry.issue || '',
-    entry.start || '',
-    entry.end || '',
+    formatDateForSheets(entry.start) || '',
     duration,
   ];
   const resp = await sheets.spreadsheets.values.append({
     spreadsheetId: SPREADSHEET_ID,
     range: `${TIMINGS_SHEET}!A2`,
-    valueInputOption: 'RAW',
+    valueInputOption: 'USER_ENTERED',
     insertDataOption: 'INSERT_ROWS',
     requestBody: { values: [row] },
   });
@@ -110,7 +171,7 @@ async function appendTiming(entry) {
       }
     }
   } catch (e) { /* ignore */ }
-  return { id: newRowNumber, issue: entry.issue || null, start: entry.start || null, end: entry.end || null, duration: duration === '' ? null : Number(duration) };
+  return { id: newRowNumber, issue: entry.issue || null, start: entry.start || null, duration: duration === '' ? null : Number(duration) };
 }
 
 async function findRowById(sheetName, id) {
@@ -118,7 +179,7 @@ async function findRowById(sheetName, id) {
   const sheets = await getSheets();
   const rowNum = Number(id);
   if (!Number.isFinite(rowNum) || rowNum < 2) return null;
-  const range = `${sheetName}!A${rowNum}:D${rowNum}`;
+  const range = `${sheetName}!A${rowNum}:C${rowNum}`;
   const res = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range });
   const values = (res.data.values && res.data.values[0]) || [];
   return { rowNumber: rowNum, values };
@@ -128,29 +189,26 @@ async function updateTiming(id, updates) {
   const sheets = await getSheets();
   const found = await findRowById(TIMINGS_SHEET, id);
   if (!found) return null;
-  // existing values map to columns: issue, start, end, duration
+  // existing values map to columns: issue, start, duration
   const current = {
     issue: found.values[0] || '',
-    start: found.values[1] || '',
-    end: found.values[2] || '',
-    duration: found.values[3] != null && found.values[3] !== '' ? Number(found.values[3]) : null,
+    start: parseSheetsDateToIso(found.values[1]) || '',
+    duration: found.values[2] != null && found.values[2] !== '' ? Number(found.values[2]) : null,
   };
-  // Only allow updating the known columns (issue, start, end)
+  // Only allow updating the known columns (issue, start, duration)
   const next = {
     issue: updates.issue != null ? updates.issue : current.issue,
     start: updates.start != null ? updates.start : current.start,
-    end: updates.end != null ? updates.end : current.end,
+    duration: updates.duration != null ? updates.duration : current.duration,
   };
-  // recompute duration if we have both start and end
-  const duration = next.end ? Math.round((Date.parse(next.end) - Date.parse(next.start)) / 1000) : '';
-  const row = [next.issue || '', next.start || '', next.end || '', duration];
+  const row = [next.issue || '', formatDateForSheets(next.start) || '', next.duration != null ? next.duration : ''];
   await sheets.spreadsheets.values.update({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${TIMINGS_SHEET}!A${found.rowNumber}:D${found.rowNumber}`,
-    valueInputOption: 'RAW',
+    range: `${TIMINGS_SHEET}!A${found.rowNumber}:C${found.rowNumber}`,
+    valueInputOption: 'USER_ENTERED',
     requestBody: { values: [row] },
   });
-  return { id: found.rowNumber, issue: next.issue, start: next.start, end: next.end, duration: duration === '' ? null : Number(duration) };
+  return { id: found.rowNumber, issue: next.issue, start: next.start || null, duration: next.duration == null || next.duration === '' ? null : Number(next.duration) };
 }
 
 async function deleteTiming(id) {
@@ -159,7 +217,7 @@ async function deleteTiming(id) {
   if (!found) return null;
   await sheets.spreadsheets.values.clear({
     spreadsheetId: SPREADSHEET_ID,
-    range: `${TIMINGS_SHEET}!A${found.rowNumber}:D${found.rowNumber}`,
+    range: `${TIMINGS_SHEET}!A${found.rowNumber}:C${found.rowNumber}`,
   });
   return { id };
 }

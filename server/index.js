@@ -56,7 +56,7 @@ function validateTimingPayload(payload) {
   }
   if (!payload.start) errors.push('start is required');
   if (payload.start && !isValidIsoString(payload.start)) errors.push('start must be a valid ISO datetime string');
-  if (payload.end && !isValidIsoString(payload.end)) errors.push('end must be a valid ISO datetime string');
+  // 'end' is deprecated; duration is used instead. Ignore validation for end if present.
   if (payload.start && payload.end) {
     const s = Date.parse(payload.start);
     const e = Date.parse(payload.end);
@@ -139,11 +139,11 @@ app.post('/api/select', async (req, res) => {
   // Closing previous interval writes directly to Sheets
 
   if (activeSelection) {
-    const closed = { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null };
+    const duration = Math.round((Date.parse(now) - Date.parse(activeSelection.start)) / 1000);
+    const closed = { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, duration, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null };
     try {
       const saved = await sheets.appendTiming(closed);
       if (!closed.issueTitle && closed.issue && saved && saved.id) {
-        // Try to fetch the issue title for convenience, but do not persist it to the sheet.
         fetchIssueTitleFromGitHub(closed.repoUrl, closed.issue).catch(() => {});
       }
     } catch (e) { /* swallow to not block UI */ }
@@ -171,7 +171,8 @@ app.post('/api/select', async (req, res) => {
 app.post('/api/stop', async (req, res) => {
   const now = new Date().toISOString();
   if (activeSelection) {
-    const closed = { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null };
+    const duration = Math.round((Date.parse(now) - Date.parse(activeSelection.start)) / 1000);
+    const closed = { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, duration, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null };
     try {
       const saved = await sheets.appendTiming(closed);
       activeSelection = null;
@@ -193,7 +194,6 @@ app.get('/api/timings', async (req, res) => {
       id: item.id,
       issue: item.issue,
       start: item.start,
-      end: item.end,
       duration: item.duration,
       repoUrl: ('repoUrl' in item && item.repoUrl) || DETECTED_REPO_URL || null,
     }));
@@ -221,13 +221,12 @@ app.post('/api/timings', async (req, res) => {
     issue: payload.issue || null,
     issueTitle: null,
     start: payload.start,
-    end: payload.end || null,
+    duration: payload.duration != null ? payload.duration : (payload.end ? Math.round((Date.parse(payload.end) - Date.parse(payload.start)) / 1000) : null),
     repoUrl: payload.repoUrl || null,
   };
   try {
     const saved = await sheets.appendTiming(entry);
     if (saved && saved.id) {
-      // Best-effort: fetch title but do not persist to sheet
       const title = await fetchIssueTitleFromGitHub(entry.repoUrl, entry.issue).catch(() => null);
       return res.status(201).json(Object.assign({}, saved, { issueTitle: title || null }));
     }
@@ -256,7 +255,6 @@ app.put('/api/timings/:id', async (req, res) => {
     const title = await fetchIssueTitleFromGitHub(candidate.repoUrl, candidate.issue).catch(() => null);
     return res.json(Object.assign({}, candidate, { issueTitle: title || null }));
   }
-  return res.json(candidate);
   return res.json(candidate);
 });
 
