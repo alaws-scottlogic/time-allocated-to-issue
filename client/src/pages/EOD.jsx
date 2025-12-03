@@ -9,7 +9,6 @@ export default function EOD() {
     other: 0,
   });
   const [entryExists, setEntryExists] = useState(false);
-  const [saveMessage, setSaveMessage] = useState("");
   const [editingValues, setEditingValues] = useState({});
 
   const today = new Date().toISOString().split("T")[0];
@@ -42,7 +41,6 @@ export default function EOD() {
       ...prevTasks,
       [name]: parseFloat(value),
     }));
-    setSaveMessage("");
   };
 
   function parseTimeInput(s) {
@@ -154,11 +152,11 @@ export default function EOD() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date: today, ...tasks }),
       });
-      setSaveMessage("End of Day Timings Saved");
+      // Do not show a success message after saving to avoid persistent UI messages
       setEntryExists(true);
     } catch (error) {
       console.error("Failed to save EOD report", error);
-      setSaveMessage("Failed to save EOD report.");
+      // keep previous behavior: show error in console; no inline message
     }
   };
 
@@ -396,7 +394,7 @@ export default function EOD() {
           <div style={{ flex: 1 }} />
         </div>
 
-        {saveMessage && <div style={{ marginTop: '1rem', color: saveMessage.includes('Failed') ? 'red' : 'green' }}>{saveMessage}</div>}
+        {/* saveMessage UI removed per request */}
       </form>
     </div>
   );

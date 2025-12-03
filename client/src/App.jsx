@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import TimingsPage from './pages/Timings'
-import EOD from './pages/EOD'
+import EodPage from './pages/Eod'
 
 export default function App() {
   const [view, setView] = useState('home');
@@ -89,23 +89,23 @@ export default function App() {
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h1 style={{ margin: 0, fontSize: 20 }}>Time Allocated To Issue</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {view === 'eod' ? (
-            <>
-              <button onClick={() => setView('home')} style={{ padding: '6px 10px' }}>Home</button>
-              <button onClick={() => setView('timings')} style={{ padding: '6px 10px' }}>Manage timings</button>
-            </>
-          ) : (
-            <>
-              <button onClick={() => setView(view === 'home' ? 'timings' : 'home')} style={{ padding: '6px 10px' }}>{view === 'home' ? 'Manage timings' : 'Home'}</button>
-              <button onClick={() => setView(view === 'eod' ? 'home' : 'eod')} style={{ padding: '6px 10px' }}>End Of Day</button>
-            </>
-          )}
+          <button onClick={() => setView(view === 'home' ? 'timings' : 'home')} style={{ padding: '6px 10px' }}>{view === 'home' ? 'Manage timings' : 'Home'}</button>
+          <button onClick={() => setView('eod')} style={{ padding: '6px 10px' }}>End Of Day</button>
+          <button onClick={async () => {
+            try {
+              const res = await fetch('/api/sheets/links');
+              if (!res.ok) return;
+              const body = await res.json();
+              const href = (body && body.base) || '';
+              if (href) window.open(href, '_blank');
+            } catch (e) {}
+          }} style={{ padding: '6px 10px' }}>View Google Sheet</button>
           {/* status removed */}
         </div>
       </header>
 
       {view === 'timings' && <TimingsPage onBack={() => setView('home')} repoUrl={repoUrl} ghToken={ghToken} setGhToken={setGhToken} />}
-      {view === 'eod' && <EOD />}
+      {view === 'eod' && <EodPage onBack={() => setView('home')} />}
       {view === 'home' && (
 
       <section style={{ display: 'grid', gap: 12 }}>

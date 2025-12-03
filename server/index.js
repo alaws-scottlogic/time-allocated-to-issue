@@ -1,21 +1,16 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
 const fetch = require('node-fetch');
 const { execSync } = require('child_process');
+const sheets = require('./lib/sheets');
 
 const app = express();
 // Allow Authorization header through CORS
 app.use(cors({ exposedHeaders: ['Authorization'] }));
 app.use(express.json());
 
-// Persist timings to the repository-level `data/timings.json` so it's easy
-// to inspect and edit during development.
-const DATA_DIR = path.join(__dirname, '..', 'data');
-const TIMINGS_FILE = path.join(DATA_DIR, 'timings.json');
-const EOD_FILE = path.join(DATA_DIR, 'eod.json');
+// Storage now uses Google Sheets via service account; see `server/lib/sheets.js`.
 
 // Try to detect the repository URL so we can store it with every timing entry.
 function detectRepoUrl() {
@@ -45,35 +40,6 @@ function detectRepoUrl() {
 
 const DETECTED_REPO_URL = detectRepoUrl();
 
-if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-if (!fs.existsSync(TIMINGS_FILE)) fs.writeFileSync(TIMINGS_FILE, '[]');
-if (!fs.existsSync(EOD_FILE)) fs.writeFileSync(EOD_FILE, '[]', 'utf-8');
-
-function readTimings() {
-  try {
-    return JSON.parse(fs.readFileSync(TIMINGS_FILE, 'utf8'));
-  } catch (err) {
-    return [];
-  }
-}
-
-function writeTimings(data) {
-  fs.writeFileSync(TIMINGS_FILE, JSON.stringify(data, null, 2));
-}
-
-function readEodData() {
-  try {
-    const data = fs.readFileSync(EOD_FILE, 'utf8');
-    return data ? JSON.parse(data) : [];
-  } catch (err) {
-    return [];
-  }
-}
-
-function writeEodData(data) {
-  fs.writeFileSync(EOD_FILE, JSON.stringify(data, null, 2));
-}
-
 let activeSelection = null;
 
 function isValidIsoString(s) {
@@ -96,7 +62,6 @@ function validateTimingPayload(payload) {
     const e = Date.parse(payload.end);
     if (e < s) errors.push('end must be the same or after start');
   }
-  if (payload.description && String(payload.description).length > 1000) errors.push('description too long');
   return errors;
 }
 
@@ -166,30 +131,22 @@ async function fetchIssueTitleFromGitHub(repoUrl, issue) {
   }
 }
 
-app.post('/api/select', (req, res) => {
+app.post('/api/select', async (req, res) => {
   // body: { issue: number|string, label?: string }
   console.log('Select API called with body:', req.body);
   const { issue: rawIssue, repoUrl, otherLabel } = req.body;
   const now = new Date().toISOString();
-  const timings = readTimings();
+  // Closing previous interval writes directly to Sheets
 
   if (activeSelection) {
-    // close previous interval — ensure we assign an id and carry owner
-    const closed = Object.assign({ id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8) }, { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null });
-    timings.push(closed);
-    // attempt to fill missing title asynchronously
-    if (!closed.issueTitle && closed.issue) {
-      fetchIssueTitleFromGitHub(closed.repoUrl, closed.issue).then(title => {
-        if (title) {
-          const all = readTimings();
-          const idx = all.findIndex(t => t.start === closed.start && t.end === closed.end && String(t.issue) === String(closed.issue));
-          if (idx !== -1) {
-            all[idx].issueTitle = title;
-            writeTimings(all);
-          }
-        }
-      }).catch(() => {});
-    }
+    const closed = { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null };
+    try {
+      const saved = await sheets.appendTiming(closed);
+      if (!closed.issueTitle && closed.issue && saved && saved.id) {
+        // Try to fetch the issue title for convenience, but do not persist it to the sheet.
+        fetchIssueTitleFromGitHub(closed.repoUrl, closed.issue).catch(() => {});
+      }
+    } catch (e) { /* swallow to not block UI */ }
   }
 
   // Resolve special tokens like 'other'/'other2' into usable issue labels so they are persisted
@@ -207,145 +164,111 @@ app.post('/api/select', (req, res) => {
 
   // start new interval (force one active)
   activeSelection = { issue, start: now, repoUrl: repoUrl || DETECTED_REPO_URL || null };
-  writeTimings(timings);
 
   return res.json({ status: 'ok', active: activeSelection });
 });
 
-app.post('/api/stop', (req, res) => {
+app.post('/api/stop', async (req, res) => {
   const now = new Date().toISOString();
-  const timings = readTimings();
   if (activeSelection) {
-    const closed = Object.assign({ id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8) }, { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null });
-    timings.push(closed);
-    activeSelection = null;
-    writeTimings(timings);
-    if (!closed.issueTitle && closed.issue) {
-      fetchIssueTitleFromGitHub(closed.repoUrl, closed.issue).then(title => {
-        if (title) {
-          const all = readTimings();
-          const idx = all.findIndex(t => t.start === closed.start && t.end === closed.end && String(t.issue) === String(closed.issue));
-          if (idx !== -1) {
-            all[idx].issueTitle = title;
-            writeTimings(all);
-          }
-        }
-      }).catch(() => {});
-    }
+    const closed = { issue: activeSelection.issue, issueTitle: activeSelection.issueTitle || null, start: activeSelection.start, end: now, repoUrl: activeSelection.repoUrl || DETECTED_REPO_URL || null };
+    try {
+      const saved = await sheets.appendTiming(closed);
+      activeSelection = null;
+      if (!closed.issueTitle && closed.issue && saved && saved.id) {
+        fetchIssueTitleFromGitHub(closed.repoUrl, closed.issue).catch(() => {});
+      }
+    } catch (e) { /* ignore */ }
     return res.json({ status: 'stopped' });
   }
   return res.status(400).json({ error: 'no active selection' });
 });
 
 // Timings CRUD
-app.get('/api/timings', (req, res) => {
-  res.json(readTimings());
-});
-
-app.get('/api/eod', (req, res) => {
-  const eodData = readEodData();
-  const today = new Date().toISOString().split('T')[0];
-  const todayEntry = eodData.find(entry => entry.date === today);
-  if (todayEntry) {
-    res.json(todayEntry);
-  } else {
-    res.status(404).json({ message: 'No entry for today' });
+app.get('/api/timings', async (req, res) => {
+  try {
+    const list = await sheets.getTimings();
+    // Attach repoUrl and best-effort issue titles (non-persistent)
+    const withRepo = list.map(item => ({
+      id: item.id,
+      issue: item.issue,
+      start: item.start,
+      end: item.end,
+      duration: item.duration,
+      repoUrl: ('repoUrl' in item && item.repoUrl) || DETECTED_REPO_URL || null,
+    }));
+    // Fetch titles in parallel (best-effort)
+    const promises = withRepo.map(async (t) => {
+      if (t.issue && t.repoUrl) {
+        const title = await fetchIssueTitleFromGitHub(t.repoUrl, t.issue).catch(() => null);
+        return Object.assign({}, t, { issueTitle: title || null });
+      }
+      return Object.assign({}, t, { issueTitle: null });
+    });
+    const updated = await Promise.all(promises);
+    return res.json(updated);
+  } catch (err) {
+    return res.status(500).json({ error: 'timings read failed' });
   }
 });
 
-app.post('/api/eod', (req, res) => {
-  const { date, ...tasks } = req.body;
-  if (!date) {
-    return res.status(400).json({ message: 'Date is required' });
-  }
-
-  const eodData = readEodData();
-  const index = eodData.findIndex(entry => entry.date === date);
-
-  if (index !== -1) {
-    eodData[index] = { ...eodData[index], ...tasks, date };
-  } else {
-    eodData.push({ date, ...tasks });
-  }
-
-  writeEodData(eodData);
-  res.status(200).json({ message: 'EOD report saved' });
-});
-
-app.post('/api/timings', (req, res) => {
+app.post('/api/timings', async (req, res) => {
   const payload = req.body;
   const errors = validateTimingPayload(payload);
   if (errors.length > 0) return res.status(400).json({ errors });
 
-  const timings = readTimings();
-  const id = String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8);
   const entry = {
-    id,
     issue: payload.issue || null,
     issueTitle: null,
-    description: payload.description || '',
     start: payload.start,
     end: payload.end || null,
     repoUrl: payload.repoUrl || null,
-    
   };
-  // attempt to resolve title synchronously-ish (returns null on failure)
-  fetchIssueTitleFromGitHub(entry.repoUrl, entry.issue).then(title => {
-    if (title) {
-      const all = readTimings();
-      const idx = all.findIndex(t => String(t.id) === String(id));
-      if (idx !== -1) {
-        all[idx].issueTitle = title;
-        writeTimings(all);
-      }
+  try {
+    const saved = await sheets.appendTiming(entry);
+    if (saved && saved.id) {
+      // Best-effort: fetch title but do not persist to sheet
+      const title = await fetchIssueTitleFromGitHub(entry.repoUrl, entry.issue).catch(() => null);
+      return res.status(201).json(Object.assign({}, saved, { issueTitle: title || null }));
     }
-  }).catch(() => {});
-  timings.push(entry);
-  writeTimings(timings);
-  return res.status(201).json(entry);
+    return res.status(201).json(saved);
+  } catch (e) {
+    return res.status(500).json({ error: 'timings write failed' });
+  }
 });
 
-app.put('/api/timings/:id', (req, res) => {
+app.put('/api/timings/:id', async (req, res) => {
   const { id } = req.params;
   const payload = req.body;
-  const timings = readTimings();
-  const idx = timings.findIndex(t => String(t.id) === String(id));
-  if (idx === -1) return res.status(404).json({ error: 'not found' });
-
-  // Merge payload but ignore owner if present
   const cleaned = Object.assign({}, payload);
   if ('owner' in cleaned) delete cleaned.owner;
-  const candidate = Object.assign({}, timings[idx], cleaned);
+  const idNum = Number(id);
+  if (!Number.isFinite(idNum) || idNum < 2) return res.status(400).json({ error: 'invalid id' });
+  const existingList = await sheets.getTimings();
+  const existing = existingList.find(t => Number(t.id) === idNum);
+  if (!existing) return res.status(404).json({ error: 'not found' });
+  const candidate = Object.assign({}, existing, cleaned);
   const errors = validateTimingPayload(candidate);
   if (errors.length > 0) return res.status(400).json({ errors });
-
-  timings[idx] = candidate;
-  // if issue or repoUrl changed (or we don't have a title), try to resolve title
-  const needResolve = (!timings[idx].issueTitle && timings[idx].issue) || payload.issue || payload.repoUrl;
-  writeTimings(timings);
-  if (needResolve) {
-    fetchIssueTitleFromGitHub(timings[idx].repoUrl, timings[idx].issue).then(title => {
-      if (title) {
-        const all = readTimings();
-        const idx2 = all.findIndex(t => String(t.id) === String(id));
-        if (idx2 !== -1) {
-          all[idx2].issueTitle = title;
-          writeTimings(all);
-        }
-      }
-    }).catch(() => {});
+  try { await sheets.updateTiming(idNum, candidate); } catch (e) { /* ignore */ }
+  // Optionally fetch the issue title for the response, but do not persist it to the sheet
+  if (candidate.issue) {
+    const title = await fetchIssueTitleFromGitHub(candidate.repoUrl, candidate.issue).catch(() => null);
+    return res.json(Object.assign({}, candidate, { issueTitle: title || null }));
   }
-  return res.json(timings[idx]);
+  return res.json(candidate);
+  return res.json(candidate);
 });
 
-app.delete('/api/timings/:id', (req, res) => {
+app.delete('/api/timings/:id', async (req, res) => {
   const { id } = req.params;
-  const timings = readTimings();
-  const idx = timings.findIndex(t => String(t.id) === String(id));
-  if (idx === -1) return res.status(404).json({ error: 'not found' });
-  const removed = timings.splice(idx, 1)[0];
-  writeTimings(timings);
-  return res.json({ removed });
+  const idNum = Number(id);
+  if (!Number.isFinite(idNum) || idNum < 2) return res.status(400).json({ error: 'invalid id' });
+  const list = await sheets.getTimings();
+  const existing = list.find(t => Number(t.id) === idNum);
+  if (!existing) return res.status(404).json({ error: 'not found' });
+  try { await sheets.deleteTiming(idNum); } catch (e) { /* ignore */ }
+  return res.json({ removed: existing });
 });
 
 const PORT = process.env.PORT || 4000;
@@ -354,26 +277,57 @@ const startupTok = getGithubEnvToken();
 if (startupTok) {
   const masked = startupTok.length > 8 ? `${startupTok.slice(0,4)}...${startupTok.slice(-4)}` : '***';
 }
-// Normalize existing timings file on startup so legacy entries get ids/owner/repoUrl
-(function normalizeTimingsOnStartup() {
-  try {
-    const all = readTimings();
-    let changed = false;
-    const updated = all.map(item => {
-      let out = item;
-      if (!out.id) {
-        changed = true;
-        out = Object.assign({ id: String(Date.now()) + '-' + Math.random().toString(36).slice(2, 8) }, out);
-      }
-      if (!('repoUrl' in out) || out.repoUrl === undefined || out.repoUrl === null) {
-        changed = true;
-        out = Object.assign({}, out, { repoUrl: DETECTED_REPO_URL || null });
-      }
-      return out;
-    });
-    if (changed) writeTimings(updated);
-  } catch (err) {
-    // ignore normalization failures
-  }
+// Ensure basic sheet headers exist on startup
+(async function startupInit() {
+  try { await sheets.ensureHeaders(); } catch (e) { /* ignore */ }
 })();
+app.get('/api/eod', async (req, res) => {
+  try {
+    const rows = await sheets.getEod();
+    return res.json(rows);
+  } catch (err) {
+    return res.status(500).json({ error: 'eod read failed' });
+  }
+});
+app.post('/api/eod', async (req, res) => {
+  const payload = req.body;
+  if (!payload || !payload.date) return res.status(400).json({ error: 'date required' });
+  // Categories per EOD UI sliders
+  const categories = ['Coding', 'Debugging', 'Interacting with a tool', 'Reviewing code', 'Other'];
+  try {
+    await sheets.appendEodTable(payload.date, payload, categories);
+    return res.status(201).json({ status: 'ok' });
+  } catch (err) {
+    return res.status(500).json({ error: 'eod write failed' });
+  }
+});
 app.listen(PORT, () => {});
+
+// Convenience: expose Google Sheet URL for quick access from the client
+app.get('/api/sheets/url', (req, res) => {
+  const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+  if (!id) return res.status(400).json({ error: 'GOOGLE_SHEETS_SPREADSHEET_ID not set' });
+  const url = `https://docs.google.com/spreadsheets/d/${id}`;
+  return res.json({ url });
+});
+
+app.get('/api/sheets/links', async (req, res) => {
+  const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+  if (!id) return res.status(400).json({ error: 'GOOGLE_SHEETS_SPREADSHEET_ID not set' });
+  const timingsGid = process.env.GOOGLE_SHEETS_TIMINGS_GID || null;
+  const eodGid = process.env.GOOGLE_SHEETS_EOD_GID || null;
+  const base = `https://docs.google.com/spreadsheets/d/${id}`;
+  if (timingsGid || eodGid) {
+    return res.json({
+      base,
+      timings: timingsGid ? `${base}/edit#gid=${timingsGid}` : base,
+      eod: eodGid ? `${base}/edit#gid=${eodGid}` : base,
+    });
+  }
+  try {
+    const links = await sheets.getSheetLinks();
+    return res.json(links);
+  } catch (err) {
+    return res.json({ base, timings: base, eod: base });
+  }
+});

@@ -28,7 +28,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ issue: '', description: '', start: '', end: '' });
+  const [form, setForm] = useState({ issue: '', start: '', end: '' });
   const [editingRow, setEditingRow] = useState(null); // index of the row being edited
   const [savingStatus, setSavingStatus] = useState({});
   const saveTimers = useRef({});
@@ -101,7 +101,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   }, [persistToken, ghToken]);
 
   function resetForm() {
-    setForm({ issue: '', description: '', start: '', end: '' });
+    setForm({ issue: '', start: '', end: '' });
     setError('');
   }
 
@@ -121,7 +121,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     } catch (err) {
       // ignore
     }
-    const payload = { issue: issueValue || null, description: form.description || '', start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null, repoUrl: repoUrl || null };
+    const payload = { issue: issueValue || null, start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null, repoUrl: repoUrl || null };
     try {
       const headers = { 'Content-Type': 'application/json' };
       if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
@@ -142,7 +142,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
 
   function beginEdit(t, idx) {
     setEditingRow(idx);
-    setForm({ issue: t.issue || '', description: t.description || '', start: isoToLocalInput(t.start), end: t.end ? isoToLocalInput(t.end) : '' });
+    setForm({ issue: t.issue || '', start: isoToLocalInput(t.start), end: t.end ? isoToLocalInput(t.end) : '' });
     setError('');
     const rowKey = t.id ?? idx;
     setSavingStatus(prev => {
@@ -158,7 +158,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     setSavingStatus(prev => ({ ...prev, [rowKey]: 'saving' }));
     saveTimers.current[rowKey] = setTimeout(async () => {
       try {
-        const payload = { issue: newValues.issue || null, description: newValues.description || '', start: localInputToIso(newValues.start), end: newValues.end ? localInputToIso(newValues.end) : null, repoUrl: repoUrl || null };
+        const payload = { issue: newValues.issue || null, start: localInputToIso(newValues.start), end: newValues.end ? localInputToIso(newValues.end) : null, repoUrl: repoUrl || null };
         if (serverId) {
           const headers = { 'Content-Type': 'application/json' };
           if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
@@ -397,7 +397,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
                                   return t.issue;
                                 })()
                               }</div>
-                              {t.description && <div style={{ color: '#6b7c88', marginTop: 6, fontSize: 13 }}>{t.description}</div>}
+                              {/* descriptions no longer persisted to the sheet */}
                             </div>
                           )}
                         </td>
