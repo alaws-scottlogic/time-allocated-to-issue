@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import TimingsPage from './pages/Timings'
-import EOD from './pages/EOD'
+import EodPage from './pages/EOD'
 
 export default function App() {
   const [view, setView] = useState('home');
@@ -20,10 +20,17 @@ export default function App() {
   async function addIssues(override) {
     const raw = (typeof override === 'string' && override.length > 0) ? override : input;
     const tokens = String(raw).split(/\r?\n|,/).map(s => s.trim()).filter(Boolean);
-    const nums = tokens.map(t => {
+    const numsRaw = tokens.map(t => {
       const m = t.match(/(\d+)/);
       return m ? m[1] : '';
     }).filter(Boolean);
+    // deduplicate while preserving order
+    const seen = new Set();
+    const nums = numsRaw.filter(n => {
+      if (seen.has(n)) return false;
+      seen.add(n);
+      return true;
+    });
     if (nums.length === 0) return;
     const invalid = nums.filter(x => !/^\d+$/.test(x));
     if (invalid.length > 0) {
@@ -67,6 +74,23 @@ export default function App() {
     const headers = { 'Content-Type': 'application/json' };
     if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
     // When selecting 'other' or 'other2', include the custom label so the server/client can use it
+    // Special-case 'stop' to call the server stop endpoint instead of selecting a new active issue
+    if (issue === 'stop') {
+      // Show the radio as selected immediately
+      setActive('stop');
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
+        await fetch('/api/stop', { method: 'POST', headers });
+        // Clear active after stopping
+        setActive(null);
+        try { localStorage.setItem('selected_issue', ''); } catch (err) {}
+      } catch (e) {
+        // ignore
+      }
+      return;
+    }
+
     const payload = { issue, repoUrl };
     if (issue === 'other') payload.otherLabel = otherLabel;
     if (issue === 'other2') payload.otherLabel = otherLabel2;
@@ -83,29 +107,50 @@ export default function App() {
     if (saved) setRepoUrl(saved);
   }, []);
 
+  useEffect(() => {
+    function handleUnload() {
+      try {
+        const url = '/api/stop';
+        // Prefer sendBeacon for a reliable, non-blocking delivery on unload
+        if (navigator && navigator.sendBeacon) {
+          const blob = new Blob([JSON.stringify({})], { type: 'application/json' });
+          navigator.sendBeacon(url, blob);
+        } else {
+          // Best-effort synchronous fetch (may be ignored by browsers)
+          const xhr = new XMLHttpRequest();
+          xhr.open('POST', url, false);
+          xhr.setRequestHeader('Content-Type', 'application/json');
+          try { xhr.send(JSON.stringify({})); } catch (e) { /* ignore */ }
+        }
+      } catch (e) { /* ignore */ }
+    }
+    window.addEventListener('beforeunload', handleUnload);
+    return () => window.removeEventListener('beforeunload', handleUnload);
+  }, []);
+
 
   return (
     <div style={{ fontFamily: 'Inter, system-ui, sans-serif', margin: '0 auto' }}>
       <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h1 style={{ margin: 0, fontSize: 20 }}>Time Allocated To Issue</h1>
         <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-          {view === 'eod' ? (
-            <>
-              <button onClick={() => setView('home')} style={{ padding: '6px 10px' }}>Home</button>
-              <button onClick={() => setView('timings')} style={{ padding: '6px 10px' }}>Manage timings</button>
-            </>
-          ) : (
-            <>
-              <button onClick={() => setView(view === 'home' ? 'timings' : 'home')} style={{ padding: '6px 10px' }}>{view === 'home' ? 'Manage timings' : 'Home'}</button>
-              <button onClick={() => setView(view === 'eod' ? 'home' : 'eod')} style={{ padding: '6px 10px' }}>End Of Day</button>
-            </>
-          )}
+          <button onClick={() => setView(view === 'home' ? 'timings' : 'home')} style={{ padding: '6px 10px' }}>{view === 'home' ? 'Manage timings' : 'Home'}</button>
+          <button onClick={() => setView('eod')} style={{ padding: '6px 10px' }}>End Of Day</button>
+          <button onClick={async () => {
+            try {
+              const res = await fetch('/api/sheets/links');
+              if (!res.ok) return;
+              const body = await res.json();
+              const href = (body && body.base) || '';
+              if (href) window.open(href, '_blank');
+            } catch (e) {}
+          }} style={{ padding: '6px 10px' }}>View Google Sheet</button>
           {/* status removed */}
         </div>
       </header>
 
       {view === 'timings' && <TimingsPage onBack={() => setView('home')} repoUrl={repoUrl} ghToken={ghToken} setGhToken={setGhToken} />}
-      {view === 'eod' && <EOD />}
+      {view === 'eod' && <EodPage onBack={() => setView('home')} />}
       {view === 'home' && (
 
       <section style={{ display: 'grid', gap: 12 }}>
@@ -121,50 +166,7 @@ export default function App() {
           </div>
           <button type="button" onClick={() => addIssues()} style={{ padding: '10px 12px', height: 40 }}>Load</button>
 
-          <label style={{ display: 'inline-block' }}>
-            <input
-              type="file"
-              accept=".json,text/csv,text/plain,application/json"
-              style={{ display: 'none' }}
-              onChange={async e => {
-                const file = e.target.files && e.target.files[0];
-                if (!file) return;
-                try {
-                  const text = await file.text();
-                  let parsed = null;
-                  try { parsed = JSON.parse(text); } catch (err) { }
-
-                  let list = [];
-                  if (Array.isArray(parsed)) {
-                    list = parsed.map(x => String(x).trim()).filter(Boolean);
-                  } else if (typeof parsed === 'object' && parsed !== null) {
-                    list = Object.values(parsed).map(x => String(x).trim()).filter(Boolean);
-                  } else {
-                    list = text.split(/\r?\n|,/).map(s => s.trim()).filter(Boolean);
-                  }
-
-                  const normalized = list.map(t => {
-                    const m = String(t).match(/(\d+)/);
-                    return m ? m[1] : '';
-                  }).filter(Boolean);
-                  const invalidInFile = normalized.filter(x => !/^\d+$/.test(x));
-                  if (invalidInFile.length > 0) {
-                      setError(`Invalid issue numbers in file: ${invalidInFile.join(', ')} — upload numeric IDs only.`);
-                    e.target.value = '';
-                    return;
-                  }
-
-                  setInput(normalized.join(', '));
-                  await addIssues(normalized.join(','));
-                } catch (err) {
-                  console.error('Failed to parse file', err);
-                } finally {
-                  e.target.value = '';
-                }
-              }}
-            />
-            <button type="button" style={{ padding: '10px 12px', height: 40 }}>Upload From File</button>
-          </label>
+          {/* Upload from file removed */}
           
           
         </div>
@@ -203,6 +205,14 @@ export default function App() {
                     <input aria-label="other-label-2" placeholder="Custom Time Entry" value={otherLabel2} onChange={e => { setOtherLabel2(e.target.value); localStorage.setItem('other_issue_label_2', e.target.value); }} style={{ padding: '6px 8px', fontSize: 13, width: '100%', boxSizing: 'border-box' }} />
                   </div>
                   {active === 'other2' && <span style={{ fontSize: 12, padding: '4px 8px', background: '#eef9ff', borderRadius: 10 }}>Active</span>}
+                </label>
+
+                <label style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 0' }}>
+                  <input type="radio" name="issue" value="stop" checked={active === 'stop'} onChange={() => selectIssue('stop')} style={{ width: 18, height: 18 }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 600 }}>Stop</div>
+                    <div style={{ color: '#666', fontSize: 13 }}>Close the current timing interval</div>
+                  </div>
                 </label>
               </form>
             </div>
