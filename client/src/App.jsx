@@ -19,6 +19,24 @@ export default function App() {
   const [otherLabel, setOtherLabel] = useState(() => localStorage.getItem('other_issue_label') || 'Other');
   const [otherLabel2, setOtherLabel2] = useState(() => localStorage.getItem('other_issue_label_2') || 'Custom Time Entry');
 
+  // Load saved issues on mount
+  useEffect(() => {
+    async function loadIssues() {
+      try {
+        const res = await fetch('/api/issues');
+        if (res.ok) {
+          const savedIssues = await res.json();
+          if (Array.isArray(savedIssues) && savedIssues.length > 0) {
+            setIssues(savedIssues);
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load issues', e);
+      }
+    }
+    loadIssues();
+  }, []);
+
   async function addIssues(override) {
     const raw = (typeof override === 'string' && override.length > 0) ? override : input;
     const tokens = String(raw).split(/\r?\n|,/).map(s => s.trim()).filter(Boolean);
@@ -66,6 +84,16 @@ export default function App() {
       }
     }));
     setIssues(fetched);
+    // Save to server
+    try {
+      await fetch('/api/issues', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(fetched)
+      });
+    } catch (e) {
+      console.error('Failed to save issues', e);
+    }
     // previously setStatus('ready') removed
     setError('');
     setActive(null);

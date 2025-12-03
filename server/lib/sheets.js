@@ -4,6 +4,7 @@ const fs = require('fs');
 const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
 const TIMINGS_SHEET = process.env.GOOGLE_SHEETS_TIMINGS_SHEET || 'Timings';
 const EOD_SHEET = process.env.GOOGLE_SHEETS_EOD_SHEET || 'EOD';
+const ISSUES_SHEET = process.env.GOOGLE_SHEETS_ISSUES_SHEET || 'Issues';
 
 // The module expects an external auth client (OAuth2) to be provided via `setAuthClient`.
 // This keeps auth concerns outside this file and allows an OAuth flow to supply tokens.
@@ -82,6 +83,7 @@ async function ensureHeaders() {
   const sheets = await getSheets();
   // Timings sheet: do not store an explicit id column; use the sheet row number as the id.
   const timingsHeader = ['issue number', 'start date', 'duration'];
+  const issuesHeader = ['issue number', 'title'];
   try {
     const t = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${TIMINGS_SHEET}!A1:C1` });
     const existing = (t.data.values && t.data.values[0]) || [];
@@ -100,6 +102,27 @@ async function ensureHeaders() {
       range: `${TIMINGS_SHEET}!A1:C1`,
       valueInputOption: 'RAW',
       requestBody: { values: [timingsHeader] },
+    });
+  }
+
+  try {
+    const t = await sheets.spreadsheets.values.get({ spreadsheetId: SPREADSHEET_ID, range: `${ISSUES_SHEET}!A1:B1` });
+    const existing = (t.data.values && t.data.values[0]) || [];
+    const same = existing.length === issuesHeader.length && existing.every((v, i) => v === issuesHeader[i]);
+    if (!same) {
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: SPREADSHEET_ID,
+        range: `${ISSUES_SHEET}!A1:B1`,
+        valueInputOption: 'RAW',
+        requestBody: { values: [issuesHeader] },
+      });
+    }
+  } catch (err) {
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: SPREADSHEET_ID,
+      range: `${ISSUES_SHEET}!A1:B1`,
+      valueInputOption: 'RAW',
+      requestBody: { values: [issuesHeader] },
     });
   }
   // Ensure column formats for readable dates and numeric durations
@@ -295,6 +318,38 @@ async function appendEodTable(date, tasks, categories) {
   return { date, ...tasks };
 }
 
+async function getIssues() {
+  await ensureHeaders();
+  const sheets = await getSheets();
+  const res = await sheets.spreadsheets.values.get({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ISSUES_SHEET}!A2:B`,
+  });
+  const rows = res.data.values || [];
+  return rows.map(r => ({ number: r[0], title: r[1] }));
+}
+
+async function saveIssues(issues) {
+  await ensureHeaders();
+  const sheets = await getSheets();
+  // Clear existing issues first
+  await sheets.spreadsheets.values.clear({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ISSUES_SHEET}!A2:B`,
+  });
+  
+  if (!issues || issues.length === 0) return;
+
+  const rows = issues.map(i => [i.number, i.title]);
+  await sheets.spreadsheets.values.append({
+    spreadsheetId: SPREADSHEET_ID,
+    range: `${ISSUES_SHEET}!A2`,
+    valueInputOption: 'RAW',
+    insertDataOption: 'INSERT_ROWS',
+    requestBody: { values: rows },
+  });
+}
+
 module.exports = {
   ensureHeaders,
   getTimings,
@@ -304,6 +359,8 @@ module.exports = {
   getEod,
   appendEodTable,
   ensureEodHeaders,
+  getIssues,
+  saveIssues,
 };
 
 module.exports.setAuthClient = setAuthClient;

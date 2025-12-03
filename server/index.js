@@ -372,6 +372,26 @@ app.delete('/api/timings/:id', async (req, res) => {
   return res.json({ removed: existing });
 });
 
+app.get('/api/issues', async (req, res) => {
+  try {
+    const issues = await sheets.getIssues();
+    return res.json(issues);
+  } catch (err) {
+    return res.status(500).json({ error: 'issues read failed', details: err && err.message ? err.message : String(err) });
+  }
+});
+
+app.post('/api/issues', async (req, res) => {
+  const issues = req.body;
+  if (!Array.isArray(issues)) return res.status(400).json({ error: 'issues must be an array' });
+  try {
+    await sheets.saveIssues(issues);
+    return res.json({ success: true });
+  } catch (err) {
+    return res.status(500).json({ error: 'issues write failed', details: err && err.message ? err.message : String(err) });
+  }
+});
+
 const PORT = process.env.PORT || 4000;
 // Log whether a GitHub token is present (mask for safety)
 const startupTok = getGithubEnvToken();
