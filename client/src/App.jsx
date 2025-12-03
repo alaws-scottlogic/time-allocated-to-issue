@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import TimingsPage from './pages/Timings'
-import EodPage from './pages/Eod'
+import EodPage from './pages/EOD'
 
 export default function App() {
   const [view, setView] = useState('home');
@@ -20,10 +20,17 @@ export default function App() {
   async function addIssues(override) {
     const raw = (typeof override === 'string' && override.length > 0) ? override : input;
     const tokens = String(raw).split(/\r?\n|,/).map(s => s.trim()).filter(Boolean);
-    const nums = tokens.map(t => {
+    const numsRaw = tokens.map(t => {
       const m = t.match(/(\d+)/);
       return m ? m[1] : '';
     }).filter(Boolean);
+    // deduplicate while preserving order
+    const seen = new Set();
+    const nums = numsRaw.filter(n => {
+      if (seen.has(n)) return false;
+      seen.add(n);
+      return true;
+    });
     if (nums.length === 0) return;
     const invalid = nums.filter(x => !/^\d+$/.test(x));
     if (invalid.length > 0) {
@@ -121,50 +128,7 @@ export default function App() {
           </div>
           <button type="button" onClick={() => addIssues()} style={{ padding: '10px 12px', height: 40 }}>Load</button>
 
-          <label style={{ display: 'inline-block' }}>
-            <input
-              type="file"
-              accept=".json,text/csv,text/plain,application/json"
-              style={{ display: 'none' }}
-              onChange={async e => {
-                const file = e.target.files && e.target.files[0];
-                if (!file) return;
-                try {
-                  const text = await file.text();
-                  let parsed = null;
-                  try { parsed = JSON.parse(text); } catch (err) { }
-
-                  let list = [];
-                  if (Array.isArray(parsed)) {
-                    list = parsed.map(x => String(x).trim()).filter(Boolean);
-                  } else if (typeof parsed === 'object' && parsed !== null) {
-                    list = Object.values(parsed).map(x => String(x).trim()).filter(Boolean);
-                  } else {
-                    list = text.split(/\r?\n|,/).map(s => s.trim()).filter(Boolean);
-                  }
-
-                  const normalized = list.map(t => {
-                    const m = String(t).match(/(\d+)/);
-                    return m ? m[1] : '';
-                  }).filter(Boolean);
-                  const invalidInFile = normalized.filter(x => !/^\d+$/.test(x));
-                  if (invalidInFile.length > 0) {
-                      setError(`Invalid issue numbers in file: ${invalidInFile.join(', ')} — upload numeric IDs only.`);
-                    e.target.value = '';
-                    return;
-                  }
-
-                  setInput(normalized.join(', '));
-                  await addIssues(normalized.join(','));
-                } catch (err) {
-                  console.error('Failed to parse file', err);
-                } finally {
-                  e.target.value = '';
-                }
-              }}
-            />
-            <button type="button" style={{ padding: '10px 12px', height: 40 }}>Upload From File</button>
-          </label>
+          {/* Upload from file removed */}
           
           
         </div>
