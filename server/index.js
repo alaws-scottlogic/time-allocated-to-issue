@@ -133,7 +133,6 @@ async function fetchIssueTitleFromGitHub(repoUrl, issue) {
 
 app.post('/api/select', async (req, res) => {
   // body: { issue: number|string, label?: string }
-  console.log('Select API called with body:', req.body);
   const { issue: rawIssue, repoUrl, otherLabel } = req.body;
   const now = new Date().toISOString();
   // Closing previous interval writes directly to Sheets
@@ -290,8 +289,8 @@ app.get('/api/eod', async (req, res) => {
 app.post('/api/eod', async (req, res) => {
   const payload = req.body;
   if (!payload || !payload.date) return res.status(400).json({ error: 'date required' });
-  // Categories per EOD UI sliders
-  const categories = ['Coding', 'Debugging', 'Interacting with a tool', 'Reviewing code', 'Other'];
+  // Categories per EOD UI
+  const categories = ['Coding', 'Debugging', 'Interacting with a tool', 'Reviewing code'];
   try {
     await sheets.appendEodTable(payload.date, payload, categories);
     return res.status(201).json({ status: 'ok' });

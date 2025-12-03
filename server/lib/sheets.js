@@ -119,7 +119,7 @@ async function ensureHeaders() {
   // Ensure EOD headers exist if previously used
   // Create EOD headers now using the standard category set so headings exist on startup
   try {
-    const categories = ['Coding', 'Debugging', 'Interacting with a tool', 'Reviewing code', 'Other'];
+    const categories = ['Coding', 'Debugging', 'Interacting with a tool', 'Reviewing code'];
     await ensureEodHeaders(categories);
   } catch (err) {
     // ignore errors here; appendEodTable will ensure headers when writing
@@ -270,7 +270,6 @@ async function appendEodTable(date, tasks, categories) {
     'Debugging': 'debugging',
     'Interacting with a tool': 'tool-interacting',
     'Reviewing code': 'code-reviewing',
-    'Other': 'other',
   };
   const row = [date].concat(categories.map(cat => {
     const key = keyMap[cat] || cat.toLowerCase().replace(/\s+/g, '-');
