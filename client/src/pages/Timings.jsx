@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
+import sheetsClient from '../lib/sheetsClient'
+import { loadTokens } from '../lib/tokenStore'
 
 function isoToLocalInput(iso) {
   if (!iso) return '';
@@ -19,6 +21,8 @@ function localInputToIso(value) {
 }
 
 export default function Timings({ repoUrl, ghToken, setGhToken }) {
+  const [googleAuthStatus, setGoogleAuthStatus] = useState({ loading: true, authenticated: false });
+  const [serverConfig, setServerConfig] = useState({ googleClientId: '', googleRedirectUri: '' });
   const [timings, setTimings] = useState([]);
   const [persistToken, setPersistToken] = useState(false);
   // selectedIssue controls the listing filter; default to 'all'
@@ -28,7 +32,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   const [dateFilter, setDateFilter] = useState({ from: '', to: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [form, setForm] = useState({ issue: '', description: '', start: '', end: '' });
+  const [form, setForm] = useState({ issue: '', start: '' });
   const [editingRow, setEditingRow] = useState(null); // index of the row being edited
   const [savingStatus, setSavingStatus] = useState({});
   const saveTimers = useRef({});
@@ -36,12 +40,15 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   async function load() {
     setLoading(true);
     try {
-      const headers = {};
-      if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-      const res = await fetch('/api/timings', { headers });
-      if (!res.ok) throw new Error('Load failed');
-      const data = await res.json();
-      setTimings(data);
+      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      if (!spreadsheetId) {
+        setError('No spreadsheet configured');
+        setTimings([]);
+      } else {
+        const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+        const data = await sheetsClient.getTimings(spreadsheetId, clientId).catch(err => { throw err; });
+        setTimings(data || []);
+      }
     } catch (err) {
       console.error(err);
       setError('Could not load timings');
@@ -51,6 +58,35 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   }
 
   useEffect(() => { load(); }, []);
+
+  // fetch server config for OAuth details
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const cfg = { googleClientId: (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || '', googleRedirectUri: (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || '' };
+        if (mounted) setServerConfig(cfg);
+      } catch (e) { /* ignore */ }
+    })();
+    return () => { mounted = false; };
+  }, []);
+
+  // Poll server for Google auth status for UI button
+  useEffect(() => {
+    let mounted = true;
+    async function check() {
+      try {
+        const tokenStore = await import('../lib/tokenStore');
+        const tokens = tokenStore.loadTokens();
+        if (mounted) setGoogleAuthStatus({ loading: false, authenticated: !!tokens });
+      } catch (err) {
+        if (mounted) setGoogleAuthStatus({ loading: false, authenticated: false });
+      }
+    }
+    check();
+    const id = setInterval(check, 5000);
+    return () => { mounted = false; clearInterval(id); };
+  }, []);
 
   // load selected issue and other label from localStorage so add form can default
   useEffect(() => {
@@ -101,7 +137,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   }, [persistToken, ghToken]);
 
   function resetForm() {
-    setForm({ issue: '', description: '', start: '', end: '' });
+    setForm({ issue: '', start: '' });
     setError('');
   }
 
@@ -121,17 +157,13 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     } catch (err) {
       // ignore
     }
-    const payload = { issue: issueValue || null, description: form.description || '', start: localInputToIso(form.start), end: form.end ? localInputToIso(form.end) : null, repoUrl: repoUrl || null };
+    const payload = { issue: issueValue || null, start: localInputToIso(form.start), repoUrl: repoUrl || null };
     try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-      const res = await fetch('/api/timings', { method: 'POST', headers, body: JSON.stringify(payload) });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError((j && j.errors && j.errors.join(', ')) || 'Save failed');
-        return;
-      }
-      const created = await res.json();
+      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      if (!spreadsheetId) throw new Error('No spreadsheet configured');
+      const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+      const sheetsClient = (await import('../lib/sheetsClient')).default;
+      const created = await sheetsClient.appendTiming(spreadsheetId, payload, clientId);
       setTimings(prev => prev.concat(created));
       resetForm();
     } catch (err) {
@@ -142,7 +174,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
 
   function beginEdit(t, idx) {
     setEditingRow(idx);
-    setForm({ issue: t.issue || '', description: t.description || '', start: isoToLocalInput(t.start), end: t.end ? isoToLocalInput(t.end) : '' });
+    setForm({ issue: t.issue || '', start: isoToLocalInput(t.start) });
     setError('');
     const rowKey = t.id ?? idx;
     setSavingStatus(prev => {
@@ -158,31 +190,15 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     setSavingStatus(prev => ({ ...prev, [rowKey]: 'saving' }));
     saveTimers.current[rowKey] = setTimeout(async () => {
       try {
-        const payload = { issue: newValues.issue || null, description: newValues.description || '', start: localInputToIso(newValues.start), end: newValues.end ? localInputToIso(newValues.end) : null, repoUrl: repoUrl || null };
+      const payload = { issue: newValues.issue || null, start: localInputToIso(newValues.start), repoUrl: repoUrl || null };
+        const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+        const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+        const sheetsClient = (await import('../lib/sheetsClient')).default;
         if (serverId) {
-          const headers = { 'Content-Type': 'application/json' };
-          if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-          const res = await fetch(`/api/timings/${serverId}`, { method: 'PUT', headers, body: JSON.stringify(payload) });
-          if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            setSavingStatus(prev => ({ ...prev, [rowKey]: 'error' }));
-            setError((j && j.errors && j.errors.join(', ')) || 'Auto-save failed');
-            return;
-          }
-          const updated = await res.json();
+          const updated = await sheetsClient.updateTiming(spreadsheetId, serverId, { issue: payload.issue, start: payload.start }, clientId).catch(err => { throw err; });
           setTimings(prev => prev.map(p => p.id === updated.id ? updated : p));
         } else {
-          // create new timing (no server id yet)
-          const headers = { 'Content-Type': 'application/json' };
-          if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-          const res = await fetch(`/api/timings`, { method: 'POST', headers, body: JSON.stringify(payload) });
-          if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            setSavingStatus(prev => ({ ...prev, [rowKey]: 'error' }));
-            setError((j && j.errors && j.errors.join(', ')) || 'Auto-save failed');
-            return;
-          }
-          const created = await res.json();
+          const created = await sheetsClient.appendTiming(spreadsheetId, { issue: payload.issue, start: payload.start }, clientId).catch(err => { throw err; });
           setTimings(prev => {
             const copy = prev.slice();
             copy[rowIndex] = created;
@@ -206,10 +222,10 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   async function handleDelete(id) {
     if (!confirm('Delete this timing?')) return;
     try {
-      const headers = {};
-      if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-      const res = await fetch(`/api/timings/${id}`, { method: 'DELETE', headers });
-      if (!res.ok) throw new Error('Delete failed');
+      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+      const sheetsClient = (await import('../lib/sheetsClient')).default;
+      await sheetsClient.deleteTiming(spreadsheetId, id, clientId);
       setTimings(prev => prev.filter(t => t.id !== id));
     } catch (err) {
       console.error(err);
@@ -327,13 +343,25 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
 
       <div className="timings-header">
         <h2>Timings</h2>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {!googleAuthStatus.loading && !googleAuthStatus.authenticated && (
+            <button className="btn btn-outline" onClick={() => {
+              const clientId = serverConfig && serverConfig.googleClientId ? serverConfig.googleClientId : '846056206184-qqt3e0cj82g3sbvhu27guna8rprp46hr.apps.googleusercontent.com';
+              const redirectUri = serverConfig && serverConfig.googleRedirectUri ? serverConfig.googleRedirectUri : 'http://localhost:5173/';
+              const scope = encodeURIComponent('openid email profile https://www.googleapis.com/auth/spreadsheets');
+              const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
+              window.location.href = url;
+            }}>Authorize Google</button>
+          )}
+          {googleAuthStatus.authenticated && <div style={{ color:'#055a9a', fontWeight:600 }}>Google Sheets connected</div>}
+        </div>
       </div>
 
       <section>
         <form onSubmit={handleAdd} className="timings-add-form" aria-label="Add timing">
           <input className="input" placeholder="Issue ID or short title" value={form.issue} onChange={e => setForm({ ...form, issue: e.target.value })} />
           <input className="input" type="datetime-local" aria-label="Start" value={form.start} onChange={e => setForm({ ...form, start: e.target.value })} />
-          <input className="input" type="datetime-local" aria-label="End" value={form.end} onChange={e => setForm({ ...form, end: e.target.value })} />
+          {/* End date removed; duration is captured by the server */}
           <div style={{ display: 'flex', gap: 8 }}>
             <button type="submit" className="btn btn-primary">{editingRow != null ? 'Save' : 'Add'}</button>
             {editingRow != null && <button type="button" className="btn btn-outline" onClick={() => { setEditingRow(null); resetForm(); }}>Cancel</button>}
@@ -368,8 +396,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
                   <tr>
                     <th style={{ width: '40%' }}>Issue</th>
                     <th style={{ width: '18%' }}>Start</th>
-                    <th style={{ width: '18%' }}>End</th>
-                    <th style={{ width: '8%' }}>Duration</th>
+                    <th style={{ width: '18%' }}>Duration</th>
                     <th style={{ width: '6%' }}></th>
                   </tr>
                 </thead>
@@ -397,17 +424,21 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
                                   return t.issue;
                                 })()
                               }</div>
-                              {t.description && <div style={{ color: '#6b7c88', marginTop: 6, fontSize: 13 }}>{t.description}</div>}
+                              {/* descriptions no longer persisted to the sheet */}
                             </div>
                           )}
                         </td>
                         <td data-label="Start">{editingRow === idx ? (
                           <input className="input" type="datetime-local" value={form.start} onChange={e => { const nv = { ...form, start: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} />
                         ) : new Date(t.start).toLocaleString()}</td>
-                        <td data-label="End">{editingRow === idx ? (
-                          <input className="input" type="datetime-local" value={form.end} onChange={e => { const nv = { ...form, end: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} />
-                        ) : (t.end ? new Date(t.end).toLocaleString() : '—')}</td>
-                        <td data-label="Duration">{formatDuration(t.start, t.end)} {savingStatus[t.id ?? idx] === 'saving' ? ' (saving...)' : savingStatus[t.id ?? idx] === 'saved' ? ' (saved)' : ''}</td>
+                        <td data-label="Duration">{t.duration != null ? (function() {
+                          const sec = Number(t.duration);
+                          if (Number.isNaN(sec)) return '—';
+                          const h = Math.floor(sec / 3600).toString();
+                          const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+                          const s2 = (sec % 60).toString().padStart(2, '0');
+                          return `${h}:${m}:${s2}`;
+                        })() : formatDuration(t.start, null)} {savingStatus[t.id ?? idx] === 'saving' ? ' (saving...)' : savingStatus[t.id ?? idx] === 'saved' ? ' (saved)' : ''}</td>
                         <td data-label="Actions">
                           {editingRow === idx ? (
                             <button aria-label="Done" title="Done" className="btn btn-primary" onClick={() => { setEditingRow(null); resetForm(); }}>
