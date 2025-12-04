@@ -52,3 +52,36 @@ GitHub token (optional)
 ```bash
 export GITHUB_TOKEN="{token}"
 ```
+
+Client-only hosting (GitHub Pages)
+---------------------------------
+- This repository includes a client-only mode that uses PKCE OAuth in the browser and the Google Sheets REST API directly. To publish the site to GitHub Pages you should:
+	- Register a Web OAuth client in Google Cloud Console with your GitHub Pages origin and redirect URI.
+	- Build the `client/` site and deploy `client/dist` to GitHub Pages (use `gh-pages` or a GitHub Actions workflow).
+	- Configure `VITE_GOOGLE_CLIENT_ID` and `VITE_GOOGLE_REDIRECT_URI` during build time (e.g. in GH Actions) so the client can start the PKCE flow.
+
+Local dev notes (use client redirect)
+	1. Open Google Cloud Console → APIs & Services → Credentials → your OAuth 2.0 Client ID.
+	2. Add `http://localhost:5173/` to the list of "Authorized redirect URIs".
+	3. Put your `VITE_GOOGLE_CLIENT_ID` and `VITE_GOOGLE_REDIRECT_URI` in `client/.env` (copy `client/.env.example`).
+	4. Start the client dev server and click "Authorize with Google" in the app.
+
+Serverless deployment notes
+--------------------------
+If you prefer to keep refresh tokens server-side, you can deploy minimal serverless functions (Vercel/Netlify) to handle the OAuth redirect and token exchange. Sample handlers are included under `serverless/`:
+
+- `serverless/auth.js` — starts the OAuth flow and redirects to Google.
+- `serverless/callback.js` — exchanges the authorization `code` for tokens and optionally persists them to disk (use `PERSIST_TOKENS=true` to enable file persistence).
+
+Environment variables to set on the serverless host:
+- `GOOGLE_CLIENT_ID` — your OAuth client id
+- `GOOGLE_CLIENT_SECRET` — your OAuth client secret
+- `GOOGLE_REDIRECT_URI` — the callback URI (e.g. `https://<your-host>/api/callback`)
+- `CLIENT_BASE_URL` — your client app URL so the server can redirect back after auth
+- `PERSIST_TOKENS` — set to `true` to persist tokens to a file (or modify `callback.js` to use Redis or another store)
+
+Deploy to Vercel: push this repo and create a Vercel project; set the above environment variables in the Vercel dashboard, then use the `/serverless` endpoints (`/api/auth` and `/api/callback`) as your `GOOGLE_REDIRECT_URI` and auth starting endpoint.
+Security note
+-------------
+- The `.env` file may contain sensitive credentials (service account private keys, client secrets). Do not commit `.env` to a public repo. Rotate any secrets that were accidentally committed.
+- Storing refresh tokens or private keys in the browser is less secure than keeping them server-side. For long-lived, multi-user deployments prefer hosting the server or serverless functions for token persistence.

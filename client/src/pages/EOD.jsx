@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import sheetsClient from '../lib/sheetsClient'
 
 export default function EOD() {
   const [tasks, setTasks] = useState({
@@ -15,9 +16,12 @@ export default function EOD() {
   useEffect(() => {
     const fetchEodData = async () => {
       try {
-        const res = await fetch(`/api/eod`);
-        if (res.ok) {
-          const data = await res.json();
+        const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+        if (!spreadsheetId) return;
+        const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+        const rows = await sheetsClient.getEod(spreadsheetId, clientId);
+        if (rows && rows.length > 0) {
+          const data = rows[0] || {};
           function mapValueToRating(v) {
             if (v == null) return 1;
             const n = Number(v);
@@ -55,12 +59,12 @@ export default function EOD() {
       const nextTasks = next(prevTasks);
       (async function save() {
         try {
-          await fetch('/api/eod', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ date: today, ...nextTasks }),
-          });
-          setEntryExists(true);
+          const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+          if (spreadsheetId) {
+            const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+            await sheetsClient.appendEodTable(spreadsheetId, today, nextTasks, clientId);
+            setEntryExists(true);
+          }
         } catch (err) {
           console.error('Failed to autosave EOD', err);
         }
@@ -86,16 +90,14 @@ export default function EOD() {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
-      await fetch("/api/eod", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: today, ...tasks }),
-      });
-      // Do not show a success message after saving to avoid persistent UI messages
-      setEntryExists(true);
+      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      if (spreadsheetId) {
+        const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+        await sheetsClient.appendEodTable(spreadsheetId, today, tasks, clientId);
+        setEntryExists(true);
+      }
     } catch (error) {
       console.error("Failed to save EOD report", error);
-      // keep previous behavior: show error in console; no inline message
     }
   };
 

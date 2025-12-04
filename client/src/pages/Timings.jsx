@@ -1,4 +1,6 @@
 import React, { useEffect, useState, useRef } from 'react'
+import sheetsClient from '../lib/sheetsClient'
+import { loadTokens } from '../lib/tokenStore'
 
 function isoToLocalInput(iso) {
   if (!iso) return '';
@@ -38,12 +40,15 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   async function load() {
     setLoading(true);
     try {
-      const headers = {};
-      if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-      const res = await fetch('/api/timings', { headers });
-      if (!res.ok) throw new Error('Load failed');
-      const data = await res.json();
-      setTimings(data);
+      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      if (!spreadsheetId) {
+        setError('No spreadsheet configured');
+        setTimings([]);
+      } else {
+        const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+        const data = await sheetsClient.getTimings(spreadsheetId, clientId).catch(err => { throw err; });
+        setTimings(data || []);
+      }
     } catch (err) {
       console.error(err);
       setError('Could not load timings');
@@ -59,10 +64,8 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     let mounted = true;
     (async () => {
       try {
-        const res = await fetch('/api/config');
-        if (!res.ok) return;
-        const j = await res.json();
-        if (mounted) setServerConfig(j);
+        const cfg = { googleClientId: (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || '', googleRedirectUri: (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || '' };
+        if (mounted) setServerConfig(cfg);
       } catch (e) { /* ignore */ }
     })();
     return () => { mounted = false; };
@@ -73,10 +76,9 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     let mounted = true;
     async function check() {
       try {
-        const res = await fetch('/api/auth/status');
-        if (!res.ok) throw new Error('status failed');
-        const j = await res.json();
-        if (mounted) setGoogleAuthStatus({ loading: false, authenticated: !!j.authenticated });
+        const tokenStore = await import('../lib/tokenStore');
+        const tokens = tokenStore.loadTokens();
+        if (mounted) setGoogleAuthStatus({ loading: false, authenticated: !!tokens });
       } catch (err) {
         if (mounted) setGoogleAuthStatus({ loading: false, authenticated: false });
       }
@@ -157,15 +159,11 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     }
     const payload = { issue: issueValue || null, start: localInputToIso(form.start), repoUrl: repoUrl || null };
     try {
-      const headers = { 'Content-Type': 'application/json' };
-      if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-      const res = await fetch('/api/timings', { method: 'POST', headers, body: JSON.stringify(payload) });
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}));
-        setError((j && j.errors && j.errors.join(', ')) || 'Save failed');
-        return;
-      }
-      const created = await res.json();
+      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      if (!spreadsheetId) throw new Error('No spreadsheet configured');
+      const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+      const sheetsClient = (await import('../lib/sheetsClient')).default;
+      const created = await sheetsClient.appendTiming(spreadsheetId, payload, clientId);
       setTimings(prev => prev.concat(created));
       resetForm();
     } catch (err) {
@@ -193,30 +191,14 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     saveTimers.current[rowKey] = setTimeout(async () => {
       try {
       const payload = { issue: newValues.issue || null, start: localInputToIso(newValues.start), repoUrl: repoUrl || null };
+        const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+        const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+        const sheetsClient = (await import('../lib/sheetsClient')).default;
         if (serverId) {
-          const headers = { 'Content-Type': 'application/json' };
-          if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-          const res = await fetch(`/api/timings/${serverId}`, { method: 'PUT', headers, body: JSON.stringify(payload) });
-          if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            setSavingStatus(prev => ({ ...prev, [rowKey]: 'error' }));
-            setError((j && j.errors && j.errors.join(', ')) || 'Auto-save failed');
-            return;
-          }
-          const updated = await res.json();
+          const updated = await sheetsClient.updateTiming(spreadsheetId, serverId, { issue: payload.issue, start: payload.start }, clientId).catch(err => { throw err; });
           setTimings(prev => prev.map(p => p.id === updated.id ? updated : p));
         } else {
-          // create new timing (no server id yet)
-          const headers = { 'Content-Type': 'application/json' };
-          if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-          const res = await fetch(`/api/timings`, { method: 'POST', headers, body: JSON.stringify(payload) });
-          if (!res.ok) {
-            const j = await res.json().catch(() => ({}));
-            setSavingStatus(prev => ({ ...prev, [rowKey]: 'error' }));
-            setError((j && j.errors && j.errors.join(', ')) || 'Auto-save failed');
-            return;
-          }
-          const created = await res.json();
+          const created = await sheetsClient.appendTiming(spreadsheetId, { issue: payload.issue, start: payload.start }, clientId).catch(err => { throw err; });
           setTimings(prev => {
             const copy = prev.slice();
             copy[rowIndex] = created;
@@ -240,10 +222,10 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   async function handleDelete(id) {
     if (!confirm('Delete this timing?')) return;
     try {
-      const headers = {};
-      if (ghToken) headers['Authorization'] = ghToken.startsWith('token ') || ghToken.startsWith('Bearer ') ? ghToken : `token ${ghToken}`;
-      const res = await fetch(`/api/timings/${id}`, { method: 'DELETE', headers });
-      if (!res.ok) throw new Error('Delete failed');
+      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+      const sheetsClient = (await import('../lib/sheetsClient')).default;
+      await sheetsClient.deleteTiming(spreadsheetId, id, clientId);
       setTimings(prev => prev.filter(t => t.id !== id));
     } catch (err) {
       console.error(err);
@@ -365,7 +347,7 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
           {!googleAuthStatus.loading && !googleAuthStatus.authenticated && (
             <button className="btn btn-outline" onClick={() => {
               const clientId = serverConfig && serverConfig.googleClientId ? serverConfig.googleClientId : '846056206184-qqt3e0cj82g3sbvhu27guna8rprp46hr.apps.googleusercontent.com';
-              const redirectUri = serverConfig && serverConfig.googleRedirectUri ? serverConfig.googleRedirectUri : 'http://localhost:4000/auth/google/callback';
+              const redirectUri = serverConfig && serverConfig.googleRedirectUri ? serverConfig.googleRedirectUri : 'http://localhost:5173/';
               const scope = encodeURIComponent('openid email profile https://www.googleapis.com/auth/spreadsheets');
               const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
               window.location.href = url;
