@@ -1,7 +1,7 @@
 const { google } = require('googleapis');
 const fs = require('fs');
 
-const SPREADSHEET_ID = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
+let SPREADSHEET_ID = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
 const TIMINGS_SHEET = process.env.GOOGLE_SHEETS_TIMINGS_SHEET || 'Timings';
 const EOD_SHEET = process.env.GOOGLE_SHEETS_EOD_SHEET || 'EOD';
 const ISSUES_SHEET = process.env.GOOGLE_SHEETS_ISSUES_SHEET || 'Issues';
@@ -14,9 +14,37 @@ function setAuthClient(authClient) {
   sharedAuthClient = authClient;
 }
 
-async function getSheets() {
-  if (!SPREADSHEET_ID) throw new Error('Missing GOOGLE_SHEETS_SPREADSHEET_ID environment variable');
+// Create a spreadsheet in the authorized user's Drive when no spreadsheet ID is provided.
+async function createSpreadsheet() {
+  if (SPREADSHEET_ID) return SPREADSHEET_ID;
   if (!sharedAuthClient) throw new Error('No Google auth available: setAuthClient(oauth2Client) with valid tokens or run /auth/google to authorize');
+  const sheetsApi = google.sheets({ version: 'v4', auth: sharedAuthClient });
+  const title = process.env.GOOGLE_SHEETS_SPREADSHEET_TITLE || 'Time Allocated to Issue';
+  const resource = {
+    properties: { title },
+    sheets: [
+      { properties: { title: TIMINGS_SHEET } },
+      { properties: { title: EOD_SHEET } },
+      { properties: { title: ISSUES_SHEET } },
+    ],
+  };
+  const resp = await sheetsApi.spreadsheets.create({ requestBody: resource });
+  SPREADSHEET_ID = (resp && resp.data && resp.data.spreadsheetId) || SPREADSHEET_ID;
+  try {
+    await ensureHeaders();
+  } catch (err) {
+    // non-fatal
+  }
+  // also set env var at runtime so other modules reading process.env later can pick it up
+  try { process.env.GOOGLE_SHEETS_SPREADSHEET_ID = SPREADSHEET_ID; } catch (e) { /* ignore */ }
+  return SPREADSHEET_ID;
+}
+
+async function getSheets() {
+  if (!sharedAuthClient) throw new Error('No Google auth available: setAuthClient(oauth2Client) with valid tokens or run /auth/google to authorize');
+  if (!SPREADSHEET_ID) {
+    await createSpreadsheet();
+  }
   return google.sheets({ version: 'v4', auth: sharedAuthClient });
 }
 

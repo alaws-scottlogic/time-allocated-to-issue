@@ -460,31 +460,21 @@ app.listen(PORT, () => {});
 })();
 
 // Convenience: expose Google Sheet URL for quick access from the client
-app.get('/api/sheets/url', (req, res) => {
-  const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-  if (!id) return res.status(400).json({ error: 'GOOGLE_SHEETS_SPREADSHEET_ID not set' });
-  const url = `https://docs.google.com/spreadsheets/d/${id}`;
-  return res.json({ url });
+app.get('/api/sheets/url', async (req, res) => {
+  try {
+    const links = await sheets.getSheetLinks();
+    return res.json({ url: links.base });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to get sheet URL', details: err.message });
+  }
 });
 
 app.get('/api/sheets/links', async (req, res) => {
-  const id = process.env.GOOGLE_SHEETS_SPREADSHEET_ID;
-  if (!id) return res.status(400).json({ error: 'GOOGLE_SHEETS_SPREADSHEET_ID not set' });
-  const timingsGid = process.env.GOOGLE_SHEETS_TIMINGS_GID || null;
-  const eodGid = process.env.GOOGLE_SHEETS_EOD_GID || null;
-  const base = `https://docs.google.com/spreadsheets/d/${id}`;
-  if (timingsGid || eodGid) {
-    return res.json({
-      base,
-      timings: timingsGid ? `${base}/edit#gid=${timingsGid}` : base,
-      eod: eodGid ? `${base}/edit#gid=${eodGid}` : base,
-    });
-  }
   try {
     const links = await sheets.getSheetLinks();
     return res.json(links);
   } catch (err) {
-    return res.json({ base, timings: base, eod: base });
+    return res.status(500).json({ error: 'Failed to get sheet links', details: err.message });
   }
 });
 
