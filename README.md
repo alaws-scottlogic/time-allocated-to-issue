@@ -85,3 +85,18 @@ Security note
 -------------
 - The `.env` file may contain sensitive credentials (service account private keys, client secrets). Do not commit `.env` to a public repo. Rotate any secrets that were accidentally committed.
 - Storing refresh tokens or private keys in the browser is less secure than keeping them server-side. For long-lived, multi-user deployments prefer hosting the server or serverless functions for token persistence.
+
+GitHub Pages Deployment
+-----------------------
+- **Project site:** This repo can be published as a GitHub Pages project site. The client is built from `client/` and must be served from the `gh-pages` branch or a `docs/` folder on `main`.
+- **Set Vite base:** `client/vite.config.js` already sets `base` to `/time-allocated-to-issue/`. If you change the repo name, update `base` accordingly.
+- **Deploy with NPM (local push):**
+
+```bash
+cd client
+npm ci
+npm run deploy
+```
+
+- **Deploy via GitHub Actions (recommended):** A workflow `/.github/workflows/deploy-gh-pages.yml` is included and will build and publish to the `gh-pages` branch when `main` is pushed.
+- **Client env:** Set `VITE_GOOGLE_CLIENT_ID` and `VITE_GOOGLE_REDIRECT_URI` in your GitHub repository secrets or in the workflow before building so the client can perform PKCE OAuth.
