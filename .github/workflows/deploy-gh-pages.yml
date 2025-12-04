@@ -14,14 +14,15 @@ jobs:
         with:
           node-version: '18'
       - name: Install dependencies
-        working-directory: ./client
         run: npm ci
       - name: Build
-        working-directory: ./client
         run: npm run build
+        env:
+          VITE_GOOGLE_CLIENT_ID: ${{ secrets.VITE_GOOGLE_CLIENT_ID }}
+          VITE_GOOGLE_REDIRECT_URI: ${{ secrets.VITE_GOOGLE_REDIRECT_URI }}
       - name: Deploy to gh-pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_dir: ./client/dist
+          publish_dir: ./dist
           publish_branch: gh-pages

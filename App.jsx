@@ -167,44 +167,74 @@ export default function App() {
     // check Google auth status on load
     (async () => {
       // fetch server-provided config so we can build OAuth URLs server-side
+      let cfg = { googleClientId: (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || '', googleRedirectUri: (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || '' };
       try {
-        // derive config from env vars
-        const cfg = { googleClientId: (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || '', googleRedirectUri: (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || '' };
+        // derive config from env vars and expose it to the outer scope
         setServerConfig(cfg);
       } catch (e) { /* ignore */ }
 
       // Detect OAuth redirect code and exchange for tokens
       try {
+        console.log('[App] Current URL:', window.location.href);
         const params = new URLSearchParams(window.location.search);
         const code = params.get('code');
-        if (code) {
-          // Clear search params from URL
-          if (window && window.history && window.history.replaceState) {
-            const url = new URL(window.location.href);
-            url.search = '';
-            window.history.replaceState({}, '', url.toString());
-          }
-          const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || cfg.googleClientId;
-          const redirectUri = (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || cfg.googleRedirectUri;
-          const tokenStore = await import('./lib/tokenStore');
-          const tokens = await tokenStore.exchangeCodeForTokens({ code, clientId, redirectUri });
-          // compute expiry_date already handled in tokenStore
-          // create spreadsheet if missing
-          const spreadId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
-          const sheetsClient = (await import('./lib/sheetsClient')).default;
-          const createdId = await sheetsClient.createSpreadsheetIfMissing(spreadId, clientId).catch(() => null);
-          if (createdId) localStorage.setItem('spreadsheetId', createdId);
-          setAuthStatus({ authenticated: true, expires_at: tokens.expiry_date || null });
+        
+        // Check for Implicit Flow response in hash
+        const hashStr = window.location.hash.substring(1);
+        let hashParams = new URLSearchParams(hashStr);
+        const accessToken = hashParams.get('access_token');
+        const error = hashParams.get('error');
+        
+        console.log('[App] Checking auth. Hash present:', !!hashStr, 'AccessToken present:', !!accessToken, 'Error:', error);
+
+        if (error) {
+            console.error('[App] Auth error from Google:', error);
+        }
+
+        if (accessToken) {
+           console.log('[App] Implicit flow detected. Saving tokens...');
+           // Handle implicit flow
+           if (window && window.history && window.history.replaceState) {
+             const url = new URL(window.location.href);
+             url.hash = '';
+             // Also clear any legacy code param if present
+             url.search = '';
+             window.history.replaceState({}, '', url.toString());
+           }
+           const tokenStore = await import('./lib/tokenStore');
+           const expiresIn = hashParams.get('expires_in');
+           const tokens = {
+             access_token: accessToken,
+             token_type: hashParams.get('token_type'),
+             scope: hashParams.get('scope'),
+             expires_in: expiresIn,
+             expiry_date: expiresIn ? Date.now() + (Number(expiresIn) * 1000) : null
+           };
+           console.log('[App] Tokens constructed:', tokens);
+           tokenStore.saveTokens(tokens);
+           console.log('[App] Tokens saved to localStorage');
+           
+           const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || cfg.googleClientId;
+           const spreadId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+           const sheetsClient = (await import('./lib/sheetsClient')).default;
+           const createdId = await sheetsClient.createSpreadsheetIfMissing(spreadId, clientId).catch(err => {
+             console.error('[App] Failed to create spreadsheet:', err);
+             return null;
+           });
+           if (createdId) localStorage.setItem('spreadsheetId', createdId);
+           setAuthStatus({ authenticated: true, expires_at: tokens.expiry_date || null });
         }
       } catch (e) {
-        /* ignore */
+        console.error('OAuth token exchange failed', e);
+        try { setAuthStatus({ authenticated: false }); } catch (_) {}
       }
 
       try {
         const tokenStore = await import('./lib/tokenStore');
         const tokens = tokenStore.loadTokens();
+        console.log('[App] Loaded tokens from storage:', tokens);
         if (tokens) setAuthStatus({ authenticated: true, expires_at: tokens.expiry_date || null });
-        else setAuthStatus({ authenticated: false });
+        else if (authStatus.authenticated !== true) setAuthStatus({ authenticated: false });
         // If we were redirected after OAuth, parse query params to show immediate feedback
           try {
             const params = new URLSearchParams(window.location.search);
@@ -212,7 +242,7 @@ export default function App() {
             if (auth === 'success') {
               const expires_at = params.get('expires_at');
               const email = params.get('email');
-              setAuthStatus({ authenticated: true, expires_at: expires_at || (body && body.expires_at) || null, email: email || null });
+              setAuthStatus({ authenticated: true, expires_at: expires_at || null, email: email || null });
               // Clean up query params to keep URLs tidy
               if (window && window.history && window.history.replaceState) {
                 const url = new URL(window.location.href);
@@ -231,8 +261,12 @@ export default function App() {
               if (!tokens && shouldAuto && !already) {
                 sessionStorage.setItem('auth_redirected', '1');
                 try {
-                  const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || (serverConfig && serverConfig.googleClientId) || '846056206184-qqt3e0cj82g3sbvhu27guna8rprp46hr.apps.googleusercontent.com';
-                  const redirectUri = (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || (serverConfig && serverConfig.googleRedirectUri) || 'http://localhost:5173/';
+                  const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || (serverConfig && serverConfig.googleClientId);
+                  const redirectUri = (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || (serverConfig && serverConfig.googleRedirectUri);
+                  if (!clientId) {
+                    console.error('Missing Google Client ID');
+                    return;
+                  }
                   const { buildAuthUrl } = await import('./lib/oauth');
                   const url = await buildAuthUrl({ clientId, redirectUri });
                   window.location.href = url;
@@ -304,8 +338,12 @@ export default function App() {
           <div>
             <button type="button" onClick={async () => {
               try {
-                const clientId = serverConfig && serverConfig.googleClientId ? serverConfig.googleClientId : (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || '846056206184-qqt3e0cj82g3sbvhu27guna8rprp46hr.apps.googleusercontent.com';
-                const redirectUri = serverConfig && serverConfig.googleRedirectUri ? serverConfig.googleRedirectUri : (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || 'http://localhost:5173/';
+                const clientId = serverConfig && serverConfig.googleClientId ? serverConfig.googleClientId : (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID);
+                const redirectUri = serverConfig && serverConfig.googleRedirectUri ? serverConfig.googleRedirectUri : (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI);
+                if (!clientId) {
+                  alert('Missing Google Client ID configuration');
+                  return;
+                }
                 const { buildAuthUrl } = await import('./lib/oauth');
                 const url = await buildAuthUrl({ clientId, redirectUri });
                 window.location.href = url;
