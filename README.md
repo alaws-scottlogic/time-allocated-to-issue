@@ -1,102 +1,65 @@
-# Time Allocated to GitHub Issue
-Setup & Run
------------
-- Install dependencies for server and client and start both services:
+# Time Allocated to Issues - Google Sheets Time Tracker
+
+**Features**
+- **Quick tracking:** Start/stop timers against an issue ID and save timings.
+- **Google Sheets:** Save timings to a Google Sheet via the Sheets API.
+- **OAuth (PKCE):** Client-side PKCE flow to exchange codes for tokens; serverless helpers included.
+- **E2E tests:** Playwright is included for end-to-end tests.
+
+**Repository Layout**
+- **`/src`**: Main React source (components, pages, `lib` helpers).
+- **`/lib`** and **`/serverless`**: Small server-side helpers and functions used for OAuth.
+- **`/pages`** or top-level `App.jsx` / `main.jsx`: App entry points.
+- **`package.json`**: Scripts for dev, build, preview, tests and deployment.
+
+**Prerequisites**
+- Node.js (v16+) and npm.
+- A Google Cloud project with OAuth credentials (Web application / or configured for PKCE usage)
+
+**Environment / Configuration**
+The app expects a few environment variables when building/running locally (Vite uses `VITE_`-prefixed vars):
+
+- `VITE_GOOGLE_CLIENT_ID`: Your Google OAuth Client ID.
+- `VITE_GOOGLE_REDIRECT_URI`: Redirect URI registered in Google Cloud (e.g. `http://localhost:5173/` for local dev).
+
+Other optional client-side values that may be stored at runtime:
+- `spreadsheetId` (localStorage): ID of the Google Sheet where timings are written.
+
+**Local development**
+1. Install deps:
 
 ```bash
-npm run install-all
-npm start
+npm install
 ```
 
-- Runs at `http://localhost:5173` by default.
-
-Usage
------------
-**Issue Time Tracking**
-- Enter comma-separated GitHub issue numbers in the UI and select an issue
-- The app records timestamped intervals to a Google Sheets spreadsheet whenever the selected issue changes.
-- Time entries can then be viewed and edited on the Manage Timings page.
-
-**End Of Day**
-- This is purely based on how much time the user feels they spent on each category that day, not based on any tracked data.
-- The user will be asked to fill 8 hours total before saving, but this is not a strict requirement.
-- Data is saved to the Google Sheets spreadsheet upon clicking "Save".
-- If a there is existing entry for the day, it will be loaded for the user to edit.
------
--  By default, the application runs at [`http://localhost:5173`](http://localhost:5173).
-- Provide a list of comma-separated GitHub issue numbers in the UI and select an issue using the radio buttons.
- - Storage: timing intervals and EOD entries are written to Google Sheets via OAuth2. The server supports an interactive OAuth flow that stores tokens locally for development.
-
-**Google Sheets setup**
-- **Auto-create spreadsheet:** When you first authenticate, the server will create a Google Sheets spreadsheet named `Time Allocated to Issue` (or the title set by `GOOGLE_SHEETS_SPREADSHEET_TITLE`) with the tabs `Timings`, `EOD`, and `Issues` and initialize headers automatically. You do not need to create a spreadsheet yourself.
-- **Existing spreadsheet:** To use an existing spreadsheet instead, set `GOOGLE_SHEETS_SPREADSHEET_ID` in your `.env`.
-
-You can configure via a `.env` (loaded by `dotenv`). Required env vars for OAuth flow:
-
-```
-GOOGLE_CLIENT_ID=<your-google-client-id>
-GOOGLE_CLIENT_SECRET=<your-google-client-secret>
-GOOGLE_REDIRECT_URI=http://localhost:4000/auth/google/callback
-```
-
-After the server creates the spreadsheet the server sets `process.env.GOOGLE_SHEETS_SPREADSHEET_ID` at runtime so subsequent requests during the same process will use the created spreadsheet. If you prefer to persist the id across restarts, copy the spreadsheet id from the server logs after creation and add it to your `.env` as `GOOGLE_SHEETS_SPREADSHEET_ID`.
-
-To obtain `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET`, create an OAuth 2.0 Client ID in Google Cloud Console and add the redirect URI above to its Authorized redirect URIs.
-
-Run the server, then open `http://localhost:4000/auth/google` to start the OAuth consent flow. Tokens will be saved to `server/credentials.json` for local development.
-
-GitHub token (optional)
------------------------
-- To avoid GitHub API rate limits or access private repos, set a `GITHUB_TOKEN` environment variable before starting the server:
+2. Create a `.env` file in the project root (or set env vars for Vite) with at least:
 
 ```bash
-export GITHUB_TOKEN="{token}"
+VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
+VITE_GOOGLE_REDIRECT_URI=http://localhost:5173/
 ```
 
-Client-only hosting (GitHub Pages)
----------------------------------
-- This repository includes a client-only mode that uses PKCE OAuth in the browser and the Google Sheets REST API directly. To publish the site to GitHub Pages you should:
-	- Register a Web OAuth client in Google Cloud Console with your GitHub Pages origin and redirect URI.
-	- Build the `client/` site and deploy `client/dist` to GitHub Pages (use `gh-pages` or a GitHub Actions workflow).
-	- Configure `VITE_GOOGLE_CLIENT_ID` and `VITE_GOOGLE_REDIRECT_URI` during build time (e.g. in GH Actions) so the client can start the PKCE flow.
-
-Local dev notes (use client redirect)
-	1. Open Google Cloud Console → APIs & Services → Credentials → your OAuth 2.0 Client ID.
-	2. Add `http://localhost:5173/` to the list of "Authorized redirect URIs".
-	3. Put your `VITE_GOOGLE_CLIENT_ID` and `VITE_GOOGLE_REDIRECT_URI` in `client/.env` (copy `client/.env.example`).
-	4. Start the client dev server and click "Authorize with Google" in the app.
-
-Serverless deployment notes
---------------------------
-If you prefer to keep refresh tokens server-side, you can deploy minimal serverless functions (Vercel/Netlify) to handle the OAuth redirect and token exchange. Sample handlers are included under `serverless/`:
-
-- `serverless/auth.js` — starts the OAuth flow and redirects to Google.
-- `serverless/callback.js` — exchanges the authorization `code` for tokens and optionally persists them to disk (use `PERSIST_TOKENS=true` to enable file persistence).
-
-Environment variables to set on the serverless host:
-- `GOOGLE_CLIENT_ID` — your OAuth client id
-- `GOOGLE_CLIENT_SECRET` — your OAuth client secret
-- `GOOGLE_REDIRECT_URI` — the callback URI (e.g. `https://<your-host>/api/callback`)
-- `CLIENT_BASE_URL` — your client app URL so the server can redirect back after auth
-- `PERSIST_TOKENS` — set to `true` to persist tokens to a file (or modify `callback.js` to use Redis or another store)
-
-Deploy to Vercel: push this repo and create a Vercel project; set the above environment variables in the Vercel dashboard, then use the `/serverless` endpoints (`/api/auth` and `/api/callback`) as your `GOOGLE_REDIRECT_URI` and auth starting endpoint.
-Security note
--------------
-- The `.env` file may contain sensitive credentials (service account private keys, client secrets). Do not commit `.env` to a public repo. Rotate any secrets that were accidentally committed.
-- Storing refresh tokens or private keys in the browser is less secure than keeping them server-side. For long-lived, multi-user deployments prefer hosting the server or serverless functions for token persistence.
-
-GitHub Pages Deployment
------------------------
-- **Project site:** This repo can be published as a GitHub Pages project site. The client is built from `client/` and must be served from the `gh-pages` branch or a `docs/` folder on `main`.
-- **Set Vite base:** `client/vite.config.js` already sets `base` to `/time-allocated-to-issue/`. If you change the repo name, update `base` accordingly.
-- **Deploy with NPM (local push):**
+3. Start the application:
 
 ```bash
-cd client
-npm ci
-npm run deploy
+npm run dev
 ```
 
-- **Deploy via GitHub Actions (recommended):** A workflow `/.github/workflows/deploy-gh-pages.yml` is included and will build and publish to the `gh-pages` branch when `main` is pushed.
-- **Client env:** Set `VITE_GOOGLE_CLIENT_ID` and `VITE_GOOGLE_REDIRECT_URI` in your GitHub repository secrets or in the workflow before building so the client can perform PKCE OAuth.
+Open `http://localhost:5173/` and use the app. Click the Authorize/Authorize Google button to start the OAuth flow.
+
+**Build & Deploy**
+- Build: `npm run build`
+- Deploy to GitHub Pages (configured in `package.json`): `npm run deploy`. The repo includes a `predeploy` script which runs the build first. If you use `gh-pages`, you may need to provide a `GITHUB_TOKEN` or configure GitHub Actions for CI deploys.
+
+**OAuth notes**
+- The client implements a PKCE flow (code verifier/challenge) and exchanges the code directly with Google's token endpoint from the client. A refresh token is stored in `localStorage` by the client library (see `src/lib/tokenStore.js` / `lib/tokenStore.js`).
+- Scopes requested include `openid email profile` and `https://www.googleapis.com/auth/spreadsheets`.
+
+**Troubleshooting**
+- If the OAuth redirect fails, confirm `VITE_GOOGLE_REDIRECT_URI` exactly matches the URI registered in Google Cloud (including trailing slash and protocol).
+- If tokens are not saved, open the browser console and look for logs from `oauth` and `tokenStore` modules.
+ 
+Testing tips for local dev
+- **Verify PKCE persists:** When you click "Authorize with Google", check the browser console for the log `pkce_code_verifier stored: true`. If false, the verifier was not saved and the exchange will fail.
+- **Check redirect URI:** Ensure the `redirect_uri` printed to the console matches the value registered in your Google Cloud OAuth client. Mismatches cause token exchange failures.
+- **Inspect errors:** If authorization completes but you're redirected back and prompted again, open DevTools -> Console and look for `[tokenStore] No PKCE code verifier found` or `OAuth token exchange failed` messages. Copy those into an issue if you need help.
