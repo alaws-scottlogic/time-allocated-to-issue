@@ -175,14 +175,24 @@ export default function App() {
 
       // Detect OAuth redirect code and exchange for tokens
       try {
+        console.log('[App] Current URL:', window.location.href);
         const params = new URLSearchParams(window.location.search);
         const code = params.get('code');
         
         // Check for Implicit Flow response in hash
-        let hashParams = new URLSearchParams(window.location.hash.substring(1));
+        const hashStr = window.location.hash.substring(1);
+        let hashParams = new URLSearchParams(hashStr);
         const accessToken = hashParams.get('access_token');
+        const error = hashParams.get('error');
+        
+        console.log('[App] Checking auth. Hash present:', !!hashStr, 'AccessToken present:', !!accessToken, 'Error:', error);
+
+        if (error) {
+            console.error('[App] Auth error from Google:', error);
+        }
 
         if (accessToken) {
+           console.log('[App] Implicit flow detected. Saving tokens...');
            // Handle implicit flow
            if (window && window.history && window.history.replaceState) {
              const url = new URL(window.location.href);
@@ -200,12 +210,17 @@ export default function App() {
              expires_in: expiresIn,
              expiry_date: expiresIn ? Date.now() + (Number(expiresIn) * 1000) : null
            };
+           console.log('[App] Tokens constructed:', tokens);
            tokenStore.saveTokens(tokens);
+           console.log('[App] Tokens saved to localStorage');
            
            const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || cfg.googleClientId;
            const spreadId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
            const sheetsClient = (await import('./lib/sheetsClient')).default;
-           const createdId = await sheetsClient.createSpreadsheetIfMissing(spreadId, clientId).catch(() => null);
+           const createdId = await sheetsClient.createSpreadsheetIfMissing(spreadId, clientId).catch(err => {
+             console.error('[App] Failed to create spreadsheet:', err);
+             return null;
+           });
            if (createdId) localStorage.setItem('spreadsheetId', createdId);
            setAuthStatus({ authenticated: true, expires_at: tokens.expiry_date || null });
         }
@@ -217,8 +232,9 @@ export default function App() {
       try {
         const tokenStore = await import('./lib/tokenStore');
         const tokens = tokenStore.loadTokens();
+        console.log('[App] Loaded tokens from storage:', tokens);
         if (tokens) setAuthStatus({ authenticated: true, expires_at: tokens.expiry_date || null });
-        else setAuthStatus({ authenticated: false });
+        else if (authStatus.authenticated !== true) setAuthStatus({ authenticated: false });
         // If we were redirected after OAuth, parse query params to show immediate feedback
           try {
             const params = new URLSearchParams(window.location.search);
