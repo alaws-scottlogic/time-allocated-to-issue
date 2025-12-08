@@ -346,8 +346,12 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
         <div style={{ display: 'flex', gap: 8 }}>
           {!googleAuthStatus.loading && !googleAuthStatus.authenticated && (
             <button className="btn btn-outline" onClick={() => {
-              const clientId = serverConfig && serverConfig.googleClientId ? serverConfig.googleClientId : '846056206184-qqt3e0cj82g3sbvhu27guna8rprp46hr.apps.googleusercontent.com';
-              const redirectUri = serverConfig && serverConfig.googleRedirectUri ? serverConfig.googleRedirectUri : 'http://localhost:5173/';
+              const clientId = serverConfig && serverConfig.googleClientId ? serverConfig.googleClientId : (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID);
+              const redirectUri = serverConfig && serverConfig.googleRedirectUri ? serverConfig.googleRedirectUri : (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI);
+              if (!clientId) {
+                alert('Missing Google Client ID configuration');
+                return;
+              }
               const scope = encodeURIComponent('openid email profile https://www.googleapis.com/auth/spreadsheets');
               const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
               window.location.href = url;

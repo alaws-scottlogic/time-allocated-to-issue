@@ -20,7 +20,7 @@
 The app expects a few environment variables when building/running locally (Vite uses `VITE_`-prefixed vars):
 
 - `VITE_GOOGLE_CLIENT_ID`: Your Google OAuth Client ID.
-- `VITE_GOOGLE_REDIRECT_URI`: Redirect URI registered in Google Cloud (e.g. `http://localhost:5173/` for local dev).
+- `VITE_GOOGLE_REDIRECT_URI`: Redirect URI registered in Google Cloud (e.g. `https://alaws-scottlogic.github.io/time-allocated-to-issue/` for GitHub Pages).
 
 Other optional client-side values that may be stored at runtime:
 - `spreadsheetId` (localStorage): ID of the Google Sheet where timings are written.
@@ -36,7 +36,7 @@ npm install
 
 ```bash
 VITE_GOOGLE_CLIENT_ID=your-client-id.apps.googleusercontent.com
-VITE_GOOGLE_REDIRECT_URI=http://localhost:5173/
+VITE_GOOGLE_REDIRECT_URI=https://alaws-scottlogic.github.io/time-allocated-to-issue/
 ```
 
 3. Start the application:
@@ -45,7 +45,7 @@ VITE_GOOGLE_REDIRECT_URI=http://localhost:5173/
 npm run dev
 ```
 
-Open `http://localhost:5173/` and use the app. Click the Authorize/Authorize Google button to start the OAuth flow.
+Open `https://alaws-scottlogic.github.io/time-allocated-to-issue/` and use the app. Click the Authorize/Authorize Google button to start the OAuth flow.
 
 **Build & Deploy**
 - Build: `npm run build`

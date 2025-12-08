@@ -13,7 +13,10 @@ export function loadTokens() {
 
 export async function exchangeCodeForTokens({ code, clientId, redirectUri }) {
   const verifier = sessionStorage.getItem('pkce_code_verifier');
-  if (!verifier) throw new Error('No PKCE code verifier found');
+  if (!verifier) {
+    console.error('[tokenStore] No PKCE code verifier found in sessionStorage');
+    throw new Error('No PKCE code verifier found');
+  }
   const body = new URLSearchParams({
     code,
     client_id: clientId,
@@ -22,7 +25,12 @@ export async function exchangeCodeForTokens({ code, clientId, redirectUri }) {
     redirect_uri: redirectUri,
   });
   const resp = await fetch('https://oauth2.googleapis.com/token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: body.toString() });
-  if (!resp.ok) throw new Error('Token exchange failed');
+  if (!resp.ok) {
+    let text;
+    try { text = await resp.text(); } catch (err) { text = '<failed to read response body>'; }
+    console.error('[tokenStore] Token endpoint returned error', resp.status, text);
+    throw new Error(`Token exchange failed: ${resp.status} ${text}`);
+  }
   const tokens = await resp.json();
   if (tokens.expires_in) tokens.expiry_date = Date.now() + (Number(tokens.expires_in) * 1000);
   saveTokens(tokens);
