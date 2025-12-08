@@ -233,7 +233,21 @@ export default function App() {
         const tokenStore = await import('./lib/tokenStore');
         const tokens = tokenStore.loadTokens();
         console.log('[App] Loaded tokens from storage:', tokens);
-        if (tokens) setAuthStatus({ authenticated: true, expires_at: tokens.expiry_date || null });
+        if (tokens) {
+          setAuthStatus({ authenticated: true, expires_at: tokens.expiry_date || null });
+          // Ensure spreadsheet exists if we have tokens but no spreadsheet ID
+          const spreadId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+          if (!spreadId) {
+             const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || cfg.googleClientId;
+             const sheetsClient = (await import('./lib/sheetsClient')).default;
+             sheetsClient.createSpreadsheetIfMissing(spreadId, clientId).then(createdId => {
+               if (createdId) {
+                 localStorage.setItem('spreadsheetId', createdId);
+                 console.log('[App] Created missing spreadsheet:', createdId);
+               }
+             }).catch(err => console.error('[App] Failed to ensure spreadsheet:', err));
+          }
+        }
         else if (authStatus.authenticated !== true) setAuthStatus({ authenticated: false });
         // If we were redirected after OAuth, parse query params to show immediate feedback
           try {
@@ -318,13 +332,23 @@ export default function App() {
           <button onClick={async () => {
             try {
               const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
-              if (!spreadsheetId) return;
+              if (!spreadsheetId) {
+                alert('No spreadsheet configured. Please try refreshing the page to attempt creation.');
+                return;
+              }
               const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
               const sheetsClient = (await import('./lib/sheetsClient')).default;
-              const links = await sheetsClient.getSheetLinks(spreadsheetId, clientId).catch(() => null);
+              const links = await sheetsClient.getSheetLinks(spreadsheetId, clientId).catch(e => {
+                console.error(e);
+                return null;
+              });
               const href = links && links.base ? links.base : null;
               if (href) window.open(href, '_blank');
-            } catch (e) {}
+              else alert('Could not determine sheet URL.');
+            } catch (e) {
+              console.error(e);
+              alert('Error opening sheet.');
+            }
           }} style={{ padding: '6px 10px' }}>View Google Sheet</button>
           
           {/* status removed */}
