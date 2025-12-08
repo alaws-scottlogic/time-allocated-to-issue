@@ -120,6 +120,7 @@ export default {
   getIssues,
   saveIssues,
   getSheetLinks,
+  createSpreadsheetIfMissing,
 };
 
 export async function createSpreadsheetIfMissing(spreadsheetId, clientId) {
