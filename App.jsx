@@ -201,6 +201,33 @@ export default function App() {
              url.search = '';
              window.history.replaceState({}, '', url.toString());
            }
+
+            // Handle Authorization Code (PKCE) response
+            if (code) {
+               try {
+                 console.log('[App] Authorization code detected, exchanging for tokens...');
+                 const tokenStore = await import('./lib/tokenStore');
+                 const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || cfg.googleClientId;
+                 const redirectUri = (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || cfg.googleRedirectUri;
+                 const tokens = await tokenStore.exchangeCodeForTokens({ code, clientId, redirectUri });
+                 console.log('[App] Tokens received from exchange', tokens);
+                 // Clean URL to remove code
+                 if (window && window.history && window.history.replaceState) {
+                   const url = new URL(window.location.href);
+                   url.search = '';
+                   window.history.replaceState({}, '', url.toString());
+                 }
+                 // Ensure spreadsheet
+                 const spreadId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+                 const sheetsClient = (await import('./lib/sheetsClient')).default;
+                 const createdId = await sheetsClient.createSpreadsheetIfMissing(spreadId, clientId).catch(err => { console.error('[App] Failed to create spreadsheet:', err); return null; });
+                 if (createdId) localStorage.setItem('spreadsheetId', createdId);
+                 setAuthStatus({ authenticated: true, expires_at: tokens.expiry_date || null });
+               } catch (e) {
+                 console.error('[App] Token exchange failed', e);
+                 try { setAuthStatus({ authenticated: false }); } catch (_) {}
+               }
+            }
            const tokenStore = await import('./lib/tokenStore');
            const expiresIn = hashParams.get('expires_in');
            const tokens = {
@@ -319,6 +346,45 @@ export default function App() {
     }
     window.addEventListener('beforeunload', handleUnload);
     return () => window.removeEventListener('beforeunload', handleUnload);
+  }, []);
+
+  // Listen for token storage changes so UI notices when tokens are cleared across tabs
+  useEffect(() => {
+    async function checkTokens() {
+      try {
+        const tokenStore = await import('./lib/tokenStore');
+        const tokens = tokenStore.loadTokens();
+        if (!tokens) setAuthStatus({ authenticated: false });
+      } catch (e) {
+        setAuthStatus({ authenticated: false });
+      }
+    }
+
+    function onStorage(e) {
+      try {
+        if (!e) return;
+        // If `time_alloc_tokens` key changed (other tab), update auth state
+        if (e.key === null || e.key === 'time_alloc_tokens') {
+          checkTokens();
+        }
+      } catch (err) { /* ignore */ }
+    }
+
+    function onCustom() {
+      // Same-tab token clears dispatch a custom event from tokenStore
+      checkTokens();
+    }
+
+    window.addEventListener('storage', onStorage);
+    window.addEventListener('time_alloc_tokens_cleared', onCustom);
+
+    // initial check
+    checkTokens();
+
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      window.removeEventListener('time_alloc_tokens_cleared', onCustom);
+    };
   }, []);
 
 

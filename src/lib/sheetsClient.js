@@ -25,6 +25,12 @@ async function gsheetsFetch(path, method = 'GET', body = null, clientId) {
   const url = `https://sheets.googleapis.com${path}`;
   const resp = await fetch(url, { method, headers, body: body && typeof body === 'string' ? body : (body ? JSON.stringify(body) : undefined) });
   if (!resp.ok) {
+    // If we receive a 401/403, clear stored tokens so the app will reauthenticate
+    if (resp.status === 401 || resp.status === 403) {
+      try { const ts = await import('./tokenStore'); ts.clearTokens(); ts.notifyTokensCleared(); } catch (e) { /* ignore */ }
+      const txt = await resp.text().catch(() => '');
+      throw new Error(`Sheets API auth error: ${resp.status} ${txt}`);
+    }
     const txt = await resp.text().catch(() => '');
     throw new Error(`Sheets API error: ${resp.status} ${txt}`);
   }

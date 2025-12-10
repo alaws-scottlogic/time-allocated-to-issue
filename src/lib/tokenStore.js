@@ -54,3 +54,10 @@ export async function refreshAccessToken({ refresh_token, clientId }) {
 }
 
 export function clearTokens() { localStorage.removeItem(TOKEN_KEY); }
+export function notifyTokensCleared() {
+  try {
+    if (typeof window !== 'undefined' && window.dispatchEvent) {
+      window.dispatchEvent(new CustomEvent('time_alloc_tokens_cleared'));
+    }
+  } catch (e) { /* ignore */ }
+}
