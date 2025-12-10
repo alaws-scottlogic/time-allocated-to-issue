@@ -21,7 +21,12 @@ export default function EOD() {
         const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
         const rows = await sheetsClient.getEod(spreadsheetId, clientId);
         if (rows && rows.length > 0) {
-          const data = rows[0] || {};
+          // find today's row by matching the 'date' column (case-insensitive)
+          const todayRow = rows.find(r => {
+            const dateKey = Object.keys(r).find(k => k && k.toLowerCase() === 'date');
+            return dateKey ? r[dateKey] === today : false;
+          }) || rows[0];
+          const data = todayRow || {};
           function mapValueToRating(v) {
             if (v == null) return 1;
             const n = Number(v);
