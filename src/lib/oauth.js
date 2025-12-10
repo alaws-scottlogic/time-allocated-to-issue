@@ -14,19 +14,11 @@ export async function generateCodeChallenge(verifier) {
 }
 
 export async function buildAuthUrl({ clientId, redirectUri, scope = 'openid email profile https://www.googleapis.com/auth/spreadsheets' }) {
-  // Use Authorization Code + PKCE flow so we can get a refresh token (offline access)
-  const verifier = generateCodeVerifier();
-  sessionStorage.setItem('pkce_code_verifier', verifier);
-  const challenge = await generateCodeChallenge(verifier);
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
-    response_type: 'code',
+    response_type: 'token',
     scope,
-    access_type: 'offline',
-    prompt: 'consent',
-    code_challenge: challenge,
-    code_challenge_method: 'S256'
   });
   const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
   try {
@@ -35,4 +27,23 @@ export async function buildAuthUrl({ clientId, redirectUri, scope = 'openid emai
     // ignore console errors in older browsers
   }
   return url;
+}
+
+export async function exchangeCodeForToken(code) {
+  const verifier = sessionStorage.getItem('pkce_code_verifier');
+  if (!verifier) throw new Error('Missing PKCE code verifier');
+  // The serverless function is the token endpoint
+  const tokenUrl = '/api/callback';
+  const res = await fetch(tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code, verifier })
+  });
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`Token exchange failed: ${errorText}`);
+  }
+  const tokens = await res.json();
+  sessionStorage.removeItem('pkce_code_verifier');
+  return tokens;
 }
