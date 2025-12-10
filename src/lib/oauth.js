@@ -14,14 +14,19 @@ export async function generateCodeChallenge(verifier) {
 }
 
 export async function buildAuthUrl({ clientId, redirectUri, scope = 'openid email profile https://www.googleapis.com/auth/spreadsheets' }) {
-  // Implicit flow (token) does not use PKCE, but we keep the helpers if needed later.
-  // We switch to response_type=token to avoid client_secret requirement on "Web application" client types.
+  // Use Authorization Code + PKCE flow so we can get a refresh token (offline access)
+  const verifier = generateCodeVerifier();
+  sessionStorage.setItem('pkce_code_verifier', verifier);
+  const challenge = await generateCodeChallenge(verifier);
   const params = new URLSearchParams({
     client_id: clientId,
     redirect_uri: redirectUri,
-    response_type: 'token',
+    response_type: 'code',
     scope,
+    access_type: 'offline',
     prompt: 'consent',
+    code_challenge: challenge,
+    code_challenge_method: 'S256'
   });
   const url = `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`;
   try {
