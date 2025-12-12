@@ -21,6 +21,25 @@ export default function App() {
   const [error, setError] = useState('');
   const [otherLabel, setOtherLabel] = useState(() => localStorage.getItem('other_issue_label') || 'Other');
   const [otherLabel2, setOtherLabel2] = useState(() => localStorage.getItem('other_issue_label_2') || 'Custom Time Entry');
+  const [noteText, setNoteText] = useState('');
+  const [notesSaving, setNotesSaving] = useState(false);
+
+  async function saveNote(text) {
+    const trimmed = (text || '').trim();
+    if (!trimmed) return null;
+    const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+    if (!spreadsheetId) { alert('No spreadsheet configured. Authorize the app to save notes.'); return null; }
+    try {
+      setNotesSaving(true);
+      const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+      const res = await sheetsClient.appendNote(spreadsheetId, trimmed, clientId);
+      setNotesSaving(false);
+      return res;
+    } catch (err) {
+      setNotesSaving(false);
+      throw err;
+    }
+  }
 
   // Helper: reload the Issues sheet and update state
   const reloadIssues = React.useCallback(async () => {
@@ -533,6 +552,37 @@ export default function App() {
             </div>
           )}
         </div>
+        <div style={{ marginTop: 12, padding: 12, border: '1px solid #eee', borderRadius: 8, background: '#fff' }}>
+          <label style={{ display: 'block', fontSize: 14, fontWeight: 600, color: '#222', marginBottom: 8 }}>Notes</label>
+          <textarea aria-label="notes" value={noteText} onChange={e => setNoteText(e.target.value)} onKeyDown={async e => {
+            if (e.key === 'Enter' && !e.shiftKey) {
+              e.preventDefault();
+              const trimmed = (noteText || '').trim();
+              if (!trimmed) return;
+              try {
+                await saveNote(trimmed);
+                setNoteText('');
+              } catch (err) {
+                console.error('Failed to save note', err);
+                alert('Failed to save note. Check console for details.');
+              }
+            }
+          }} style={{ width: '100%', minHeight: 140, padding: '10px 12px', fontSize: 14, boxSizing: 'border-box', borderRadius: 6, border: '1px solid #e6e6e6' }} />
+          
+        </div>
+        <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+            <button type="button" disabled={notesSaving || !(noteText || '').trim()} onClick={async () => {
+              const trimmed = (noteText || '').trim();
+              if (!trimmed) return;
+              try {
+                await saveNote(trimmed);
+                setNoteText('');
+              } catch (err) {
+                console.error('Failed to save note', err);
+                alert('Failed to save note. Check console for details.');
+              }
+            }} style={{ padding: '8px 12px' }}>{notesSaving ? 'Saving…' : 'Submit'}</button>
+          </div>
       </section>
       )}
     </div>

@@ -196,19 +196,30 @@ export default {
   getIssues,
   saveIssues,
   getSheetLinks,
+  appendNote,
   createSpreadsheetIfMissing,
 };
 
 export async function createSpreadsheetIfMissing(spreadsheetId, clientId) {
   if (spreadsheetId) return spreadsheetId;
   const title = (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_TITLE) || 'Time Allocated to Issue';
-  const resource = { properties: { title }, sheets: [{ properties: { title: 'Timings' } }, { properties: { title: 'EOD' } }, { properties: { title: 'Issues' } }] };
+  const resource = { properties: { title }, sheets: [{ properties: { title: 'Timings' } }, { properties: { title: 'EOD' } }, { properties: { title: 'Issues' } }, { properties: { title: 'Notes' } }] };
   const j = await gsheetsFetch('/v4/spreadsheets', 'POST', resource, clientId);
   const id = j && j.spreadsheetId ? j.spreadsheetId : null;
   if (id) {
     await gsheetsFetch(`/v4/spreadsheets/${id}/values/Timings!A1:C1?valueInputOption=RAW`, 'PUT', { values: [['issue number', 'start date', 'duration']] }, clientId).catch(() => {});
     await gsheetsFetch(`/v4/spreadsheets/${id}/values/EOD!A1:E1?valueInputOption=RAW`, 'PUT', { values: [['date', 'Coding', 'Debugging', 'Interacting with a tool', 'Reviewing code']] }, clientId).catch(() => {});
     await gsheetsFetch(`/v4/spreadsheets/${id}/values/Issues!A1:B1?valueInputOption=RAW`, 'PUT', { values: [['issue number', 'title']] }, clientId).catch(() => {});
+    await gsheetsFetch(`/v4/spreadsheets/${id}/values/Notes!A1:B1?valueInputOption=RAW`, 'PUT', { values: [['timestamp', 'note']] }, clientId).catch(() => {});
   }
   return id;
+}
+
+export async function appendNote(spreadsheetId, note, clientId) {
+  if (!spreadsheetId) throw new Error('Spreadsheet ID required');
+  const path = `/v4/spreadsheets/${spreadsheetId}/values/Notes!A2:append?valueInputOption=USER_ENTERED`;
+  const ts = new Date().toISOString();
+  const row = [ts, note || ''];
+  await gsheetsFetch(path, 'POST', { values: [row] }, clientId);
+  return { timestamp: ts, note };
 }
