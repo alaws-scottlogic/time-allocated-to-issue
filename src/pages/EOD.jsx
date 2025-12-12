@@ -136,8 +136,6 @@ export default function EOD() {
       <div className="eod-header">
         <h2>End Of Day</h2>
       </div>
-
-      {entryExists && <div style={{ marginBottom: 8, color: '#444' }}>An entry for today already exists. You can edit it below.</div>}
       <form onSubmit={handleSubmit} className="eod-form" aria-label="End of day form">
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }} className="eod-row" aria-hidden>
           <div className="eod-label" style={{ fontWeight: 600 }}>How much time</div>
