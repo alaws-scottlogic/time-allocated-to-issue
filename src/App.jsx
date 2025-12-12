@@ -21,6 +21,19 @@ export default function App() {
   const [error, setError] = useState('');
   const [otherLabel, setOtherLabel] = useState(() => localStorage.getItem('other_issue_label') || 'Other');
   const [otherLabel2, setOtherLabel2] = useState(() => localStorage.getItem('other_issue_label_2') || 'Custom Time Entry');
+
+  // Helper: reload the Issues sheet and update state
+  const reloadIssues = React.useCallback(async () => {
+    try {
+      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      if (!spreadsheetId) return;
+      const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+      const savedIssues = await sheetsClient.getIssues(spreadsheetId, clientId).catch(() => []);
+      setIssues(Array.isArray(savedIssues) ? savedIssues : []);
+    } catch (e) {
+      console.error('Failed to reload issues', e);
+    }
+  }, []);
   
   // NEW: Handle Google OAuth callback
   useEffect(() => {
@@ -48,20 +61,15 @@ export default function App() {
 
   // Load saved issues on mount
   useEffect(() => {
-    async function loadIssues() {
-      try {
-        const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
-        if (spreadsheetId) {
-          const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
-          const savedIssues = await sheetsClient.getIssues(spreadsheetId, clientId).catch(() => []);
-          if (Array.isArray(savedIssues) && savedIssues.length > 0) setIssues(savedIssues);
-        }
-      } catch (e) {
-        console.error('Failed to load issues', e);
-      }
-    }
-    loadIssues();
+    reloadIssues();
   }, []);
+
+  // When authentication (re-)establishes, refresh the Issues list automatically
+  useEffect(() => {
+    if (authStatus && authStatus.authenticated) {
+      reloadIssues();
+    }
+  }, [authStatus && authStatus.authenticated, reloadIssues]);
 
   async function addIssues(override) {
     const raw = (typeof override === 'string' && override.length > 0) ? override : input;
