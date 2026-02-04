@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import TimingsPage from "./pages/Timings";
+import CalendarPage from "./pages/Calendar";
 import sheetsClient from "./lib/sheetsClient";
 import * as tokenStore from "./lib/tokenStore";
 import { buildAuthUrl } from "./lib/oauth";
@@ -643,10 +643,22 @@ export default function App() {
         <h1 style={{ margin: 0, fontSize: 20 }}>Time Allocated To Issue</h1>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <button
-            onClick={() => setView(view === "home" ? "timings" : "home")}
-            style={{ padding: "6px 10px" }}
+            onClick={() => setView("home")}
+            style={{
+              padding: "6px 10px",
+              fontWeight: view === "home" ? "bold" : "normal",
+            }}
           >
-            {view === "home" ? "Manage timings" : "Home"}
+            Home
+          </button>
+          <button
+            onClick={() => setView("calendar")}
+            style={{
+              padding: "6px 10px",
+              fontWeight: view === "calendar" ? "bold" : "normal",
+            }}
+          >
+            Calendar
           </button>
           <button
             onClick={async () => {
@@ -779,14 +791,7 @@ export default function App() {
         </div>
       )}
 
-      {view === "timings" && (
-        <TimingsPage
-          onBack={() => setView("home")}
-          repoUrl={repoUrl}
-          ghToken={ghToken}
-          setGhToken={setGhToken}
-        />
-      )}
+      {view === "calendar" && <CalendarPage />}
       {view === "home" && (
         <section style={{ display: "grid", gap: 12 }}>
           <div
