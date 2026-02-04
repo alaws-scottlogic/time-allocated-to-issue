@@ -8,7 +8,16 @@ export default function App() {
   const [view, setView] = useState("home");
   const [input, setInput] = useState("");
   const [issues, setIssues] = useState([]);
-  const [active, setActive] = useState(null);
+  const [active, setActive] = useState(() => {
+    try {
+      const saved = sessionStorage.getItem("activeSelection");
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return parsed.issue;
+      }
+    } catch (e) {}
+    return null;
+  });
   const [repoUrl, setRepoUrl] = useState(
     () => localStorage.getItem("repoUrl") || "",
   );
@@ -681,64 +690,91 @@ export default function App() {
       {authStatus.authenticated === false && (
         <div
           style={{
-            padding: 12,
-            marginBottom: 12,
-            border: "1px solid #ffd7b5",
-            background: "#fff4e6",
-            borderRadius: 6,
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: "rgba(0, 0, 0, 0.5)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000,
           }}
         >
-          <strong style={{ display: "block", marginBottom: 6 }}>
-            Google Sheets not authorized
-          </strong>
-          <div style={{ marginBottom: 8 }}>
-            To save timings to Google Sheets you need to authorize this app to
-            access your Google account.
-          </div>
-          <div>
-            <button
-              type="button"
-              onClick={async () => {
-                try {
-                  const clientId =
-                    serverConfig && serverConfig.googleClientId
-                      ? serverConfig.googleClientId
-                      : import.meta.env &&
-                        import.meta.env.VITE_GOOGLE_CLIENT_ID;
-                  let redirectUri =
-                    serverConfig && serverConfig.googleRedirectUri
-                      ? serverConfig.googleRedirectUri
-                      : import.meta.env &&
-                        import.meta.env.VITE_GOOGLE_REDIRECT_URI;
-
-                  // If running locally, use the current origin to avoid redirecting to production
-                  if (
-                    window.location.hostname === "localhost" ||
-                    window.location.hostname === "127.0.0.1"
-                  ) {
-                    redirectUri = window.location.origin;
-                  }
-
-                  if (!clientId) {
-                    alert("Missing Google Client ID configuration");
-                    return;
-                  }
-                  const url = await buildAuthUrl({ clientId, redirectUri });
-                  window.location.href = url;
-                } catch (e) {
-                  console.error("Auth start failed", e);
-                }
-              }}
+          <div
+            style={{
+              padding: 24,
+              width: "90%",
+              maxWidth: 400,
+              background: "#fff",
+              borderRadius: 8,
+              boxShadow: "0 4px 12px rgba(0,0,0,0.15)",
+              textAlign: "center",
+            }}
+          >
+            <strong
               style={{
-                padding: "8px 12px",
-                background: "#2b7cff",
-                color: "#fff",
-                border: "none",
-                borderRadius: 4,
+                display: "block",
+                fontSize: 18,
+                marginBottom: 12,
+                color: "#d32f2f",
               }}
             >
-              Authorize with Google
-            </button>
+              Google Sheets Not Authorized
+            </strong>
+            <div style={{ marginBottom: 16, lineHeight: "1.5", color: "#333" }}>
+              To save timings to Google Sheets you need to re-authorize this app
+              to access your Google account. Use the button below to sign in.
+            </div>
+            <div>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    const clientId =
+                      serverConfig && serverConfig.googleClientId
+                        ? serverConfig.googleClientId
+                        : import.meta.env &&
+                          import.meta.env.VITE_GOOGLE_CLIENT_ID;
+                    let redirectUri =
+                      serverConfig && serverConfig.googleRedirectUri
+                        ? serverConfig.googleRedirectUri
+                        : import.meta.env &&
+                          import.meta.env.VITE_GOOGLE_REDIRECT_URI;
+
+                    // If running locally, use the current origin to avoid redirecting to production
+                    if (
+                      window.location.hostname === "localhost" ||
+                      window.location.hostname === "127.0.0.1"
+                    ) {
+                      redirectUri = window.location.origin;
+                    }
+
+                    if (!clientId) {
+                      alert("Missing Google Client ID configuration");
+                      return;
+                    }
+                    const url = await buildAuthUrl({ clientId, redirectUri });
+                    window.location.href = url;
+                  } catch (e) {
+                    console.error("Auth start failed", e);
+                  }
+                }}
+                style={{
+                  padding: "10px 16px",
+                  background: "#2b7cff",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 4,
+                  fontSize: 14,
+                  fontWeight: 600,
+                  cursor: "pointer",
+                }}
+              >
+                Authorize with Google
+              </button>
+            </div>
           </div>
         </div>
       )}
