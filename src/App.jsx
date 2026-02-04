@@ -37,6 +37,8 @@ export default function App() {
   const [error, setError] = useState("");
   const [noteText, setNoteText] = useState("");
   const [notesSaving, setNotesSaving] = useState(false);
+  const [timings, setTimings] = useState([]);
+  const [showProgress, setShowProgress] = useState(false);
 
   async function saveNote(text) {
     const trimmed = (text || "").trim();
@@ -83,6 +85,23 @@ export default function App() {
     }
   }, []);
 
+  const reloadTimings = React.useCallback(async () => {
+    try {
+      const spreadsheetId =
+        localStorage.getItem("spreadsheetId") ||
+        (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      if (!spreadsheetId) return;
+      const clientId =
+        (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+      const data = await sheetsClient
+        .getTimings(spreadsheetId, clientId)
+        .catch(() => []);
+      setTimings(data || []);
+    } catch (e) {
+      console.error("Failed to reload timings", e);
+    }
+  }, []);
+
   // NEW: Handle Google OAuth callback
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -111,17 +130,27 @@ export default function App() {
     }
   }, []);
 
-  // Load saved issues on mount
+  // Load saved issues and timings on mount
   useEffect(() => {
     reloadIssues();
-  }, []);
+    reloadTimings();
+  }, [reloadIssues, reloadTimings]);
 
-  // When authentication (re-)establishes, refresh the Issues list automatically
+  // Refresh data when switching to home view
+  useEffect(() => {
+    if (view === "home") {
+      reloadIssues();
+      reloadTimings();
+    }
+  }, [view, reloadIssues, reloadTimings]);
+
+  // When authentication (re-)establishes, refresh the lists automatically
   useEffect(() => {
     if (authStatus && authStatus.authenticated) {
       reloadIssues();
+      reloadTimings();
     }
-  }, [authStatus && authStatus.authenticated, reloadIssues]);
+  }, [authStatus && authStatus.authenticated, reloadIssues, reloadTimings]);
 
   async function addIssues(override) {
     const raw =
@@ -239,6 +268,7 @@ export default function App() {
               (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) ||
               null;
             await sheetsClient.appendTiming(spreadsheetId, closed, clientId);
+            reloadTimings();
           }
         }
         // Clear active after stopping
@@ -280,6 +310,7 @@ export default function App() {
           await sheetsClient
             .appendTiming(spreadsheetId, closed, clientId)
             .catch(() => {});
+          reloadTimings();
         }
       }
     } catch (e) {
@@ -627,6 +658,11 @@ export default function App() {
       window.removeEventListener("time_alloc_tokens_cleared", onCustom);
     };
   }, []);
+
+  const totalHours =
+    timings.length > 0
+      ? timings.reduce((acc, t) => acc + (t.duration || 0), 0) / 3600
+      : 0;
 
   return (
     <div
@@ -1048,6 +1084,86 @@ export default function App() {
             >
               {notesSaving ? "Saving…" : "Submit"}
             </button>
+          </div>
+
+          <div
+            style={{
+              marginTop: 16,
+              padding: "12px 16px",
+              border: "1px solid #eee",
+              borderRadius: 8,
+              background: "#fafafa",
+            }}
+          >
+            <label
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 10,
+                fontSize: 14,
+                fontWeight: 600,
+                color: "#333",
+                cursor: "pointer",
+              }}
+            >
+              <input
+                type="checkbox"
+                checked={showProgress}
+                onChange={(e) => setShowProgress(e.target.checked)}
+                style={{ width: 16, height: 16 }}
+              />
+              Show Total Time (50h)
+            </label>
+
+            {showProgress && (
+              <div style={{ marginTop: 16 }}>
+                <div
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    fontSize: 13,
+                    fontWeight: 600,
+                    marginBottom: 8,
+                    color: "#555",
+                  }}
+                >
+                  <span>Total Elapsed: {totalHours.toFixed(1)}h</span>
+                </div>
+                <div
+                  style={{
+                    width: "100%",
+                    height: 12,
+                    background: "#e0e0e0",
+                    borderRadius: 6,
+                    overflow: "hidden",
+                    boxShadow: "inset 0 1px 2px rgba(0,0,0,0.1)",
+                  }}
+                >
+                  <div
+                    style={{
+                      width: `${Math.min((totalHours / 50) * 100, 100)}%`,
+                      height: "100%",
+                      background: totalHours >= 50 ? "#4caf50" : "#2196f3",
+                      transition: "width 0.5s cubic-bezier(0.4, 0, 0.2, 1)",
+                      boxShadow: "0 1px 2px rgba(0,0,0,0.2)",
+                    }}
+                  />
+                </div>
+                {totalHours >= 50 && (
+                  <div
+                    style={{
+                      marginTop: 8,
+                      fontSize: 12,
+                      color: "#2e7d32",
+                      fontWeight: 600,
+                      textAlign: "center",
+                    }}
+                  >
+                    🎉 Goal Reached!
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </section>
       )}
