@@ -1,9 +1,8 @@
-import React, { useEffect, useState, useRef } from 'react'
-import sheetsClient from '../lib/sheetsClient'
-import { loadTokens } from '../lib/tokenStore'
+import { useEffect, useState, useRef } from "react";
+import sheetsClient from "../lib/sheetsClient";
 
 function isoToLocalInput(iso) {
-  if (!iso) return '';
+  if (!iso) return "";
   const d = new Date(iso);
   const tzOffset = d.getTimezoneOffset() * 60000;
   const local = new Date(d.getTime() - tzOffset);
@@ -21,18 +20,24 @@ function localInputToIso(value) {
 }
 
 export default function Timings({ repoUrl, ghToken, setGhToken }) {
-  const [googleAuthStatus, setGoogleAuthStatus] = useState({ loading: true, authenticated: false });
-  const [serverConfig, setServerConfig] = useState({ googleClientId: '', googleRedirectUri: '' });
+  const [googleAuthStatus, setGoogleAuthStatus] = useState({
+    loading: true,
+    authenticated: false,
+  });
+  const [serverConfig, setServerConfig] = useState({
+    googleClientId: "",
+    googleRedirectUri: "",
+  });
   const [timings, setTimings] = useState([]);
   const [persistToken, setPersistToken] = useState(false);
   // selectedIssue controls the listing filter; default to 'all'
-  const [selectedIssue, setSelectedIssue] = useState('all');
+  const [selectedIssue, setSelectedIssue] = useState("all");
   // issue titles are stored on each timing as \`issueTitle\`
   const [issueLabels, setIssueLabels] = useState({}); // map issue -> title (for selector)
-  const [dateFilter, setDateFilter] = useState({ from: '', to: '' });
+  const [dateFilter, setDateFilter] = useState({ from: "", to: "" });
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [form, setForm] = useState({ issue: '', start: '' });
+  const [error, setError] = useState("");
+  const [form, setForm] = useState({ issue: "", start: "" });
   const [editingRow, setEditingRow] = useState(null); // index of the row being edited
   const [savingStatus, setSavingStatus] = useState({});
   const saveTimers = useRef({});
@@ -40,35 +45,53 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   async function load() {
     setLoading(true);
     try {
-      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      const spreadsheetId =
+        localStorage.getItem("spreadsheetId") ||
+        (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
       if (!spreadsheetId) {
-        setError('No spreadsheet configured');
+        setError("No spreadsheet configured");
         setTimings([]);
       } else {
-        const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
-        const data = await sheetsClient.getTimings(spreadsheetId, clientId).catch(err => { throw err; });
+        const clientId =
+          (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+        const data = await sheetsClient
+          .getTimings(spreadsheetId, clientId)
+          .catch((err) => {
+            throw err;
+          });
         setTimings(data || []);
       }
     } catch (err) {
       console.error(err);
-      setError('Could not load timings');
+      setError("Could not load timings");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+  }, []);
 
   // fetch server config for OAuth details
   useEffect(() => {
     let mounted = true;
     (async () => {
       try {
-        const cfg = { googleClientId: (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || '', googleRedirectUri: (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || '' };
+        const cfg = {
+          googleClientId:
+            (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || "",
+          googleRedirectUri:
+            (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI) || "",
+        };
         if (mounted) setServerConfig(cfg);
-      } catch (e) { /* ignore */ }
+      } catch (e) {
+        /* ignore */
+      }
     })();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Poll server for Google auth status for UI button
@@ -76,33 +99,30 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
     let mounted = true;
     async function check() {
       try {
-        const tokenStore = await import('../lib/tokenStore');
+        const tokenStore = await import("../lib/tokenStore");
         const tokens = tokenStore.loadTokens();
-        if (mounted) setGoogleAuthStatus({ loading: false, authenticated: !!tokens });
+        if (mounted)
+          setGoogleAuthStatus({ loading: false, authenticated: !!tokens });
       } catch (err) {
-        if (mounted) setGoogleAuthStatus({ loading: false, authenticated: false });
+        if (mounted)
+          setGoogleAuthStatus({ loading: false, authenticated: false });
       }
     }
     check();
     const id = setInterval(check, 5000);
-    return () => { mounted = false; clearInterval(id); };
+    return () => {
+      mounted = false;
+      clearInterval(id);
+    };
   }, []);
 
-  // load selected issue and other label from localStorage so add form can default 
+  // load selected issue from localStorage so add form can default
   useEffect(() => {
     try {
-      const sel = localStorage.getItem('selected_issue');
-      const otherLabel = localStorage.getItem('other_issue_label') || 'Other';
-      const otherLabel2 = localStorage.getItem('other_issue_label_2') || 'Other (custom)';
+      const sel = localStorage.getItem("selected_issue");
       // Use saved selection only to prefill the add form; do not apply as active list filter
-      if (sel && sel !== 'all' && sel !== 'other') {
-        setForm(prev => ({ ...prev, issue: sel }));
-      }
-      if (sel === 'other') {
-        setForm(prev => ({ ...prev, issue: otherLabel }));
-      }
-      if (sel === 'other2') {
-        setForm(prev => ({ ...prev, issue: otherLabel2 }));
+      if (sel && sel !== "all" && sel !== "other" && sel !== "other2") {
+        setForm((prev) => ({ ...prev, issue: sel }));
       }
     } catch (err) {
       // ignore
@@ -112,10 +132,10 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   // Load persisted GitHub token (if any)
   useEffect(() => {
     try {
-      const saved = localStorage.getItem('github_token');
-      const savedPersist = localStorage.getItem('github_token_persist');
+      const saved = localStorage.getItem("github_token");
+      const savedPersist = localStorage.getItem("github_token_persist");
       if (saved && !ghToken) setGhToken(saved);
-      if (savedPersist === '1') setPersistToken(true);
+      if (savedPersist === "1") setPersistToken(true);
     } catch (err) {
       // ignore localStorage failures
     }
@@ -125,11 +145,11 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   useEffect(() => {
     try {
       if (persistToken) {
-        if (ghToken) localStorage.setItem('github_token', ghToken);
-        localStorage.setItem('github_token_persist', '1');
+        if (ghToken) localStorage.setItem("github_token", ghToken);
+        localStorage.setItem("github_token_persist", "1");
       } else {
-        localStorage.removeItem('github_token');
-        localStorage.removeItem('github_token_persist');
+        localStorage.removeItem("github_token");
+        localStorage.removeItem("github_token_persist");
       }
     } catch (err) {
       // ignore
@@ -137,47 +157,65 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   }, [persistToken, ghToken]);
 
   function resetForm() {
-    setForm({ issue: '', start: '' });
-    setError('');
+    setForm({ issue: "", start: "" });
+    setError("");
   }
 
   async function handleAdd(e) {
     e.preventDefault();
-    setError('');
-    if (!form.start) { setError('Start is required'); return; }
+    setError("");
+    if (!form.start) {
+      setError("Start is required");
+      return;
+    }
     // If no issue typed, try to use the selected issue stored in localStorage
     let issueValue = form.issue;
     try {
-      const sel = localStorage.getItem('selected_issue');
-      const otherLabel = localStorage.getItem('other_issue_label') || 'Other';
-      const otherLabel2 = localStorage.getItem('other_issue_label_2') || 'Other (custom)';
-      if ((!issueValue || String(issueValue).trim() === '') && sel && sel !== 'all') {
-        issueValue = sel === 'other' ? otherLabel : sel === 'other2' ? otherLabel2 : sel;
+      const sel = localStorage.getItem("selected_issue");
+      if (
+        (!issueValue || String(issueValue).trim() === "") &&
+        sel &&
+        sel !== "all" &&
+        sel !== "other" &&
+        sel !== "other2"
+      ) {
+        issueValue = sel;
       }
     } catch (err) {
       // ignore
     }
-    const payload = { issue: issueValue || null, start: localInputToIso(form.start), repoUrl: repoUrl || null };
+    const payload = {
+      issue: issueValue || null,
+      start: localInputToIso(form.start),
+      repoUrl: repoUrl || null,
+    };
     try {
-      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
-      if (!spreadsheetId) throw new Error('No spreadsheet configured');
-      const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
-      const sheetsClient = (await import('../lib/sheetsClient')).default;
-      const created = await sheetsClient.appendTiming(spreadsheetId, payload, clientId);
-      setTimings(prev => prev.concat(created));
+      const spreadsheetId =
+        localStorage.getItem("spreadsheetId") ||
+        (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      if (!spreadsheetId) throw new Error("No spreadsheet configured");
+      const clientId =
+        (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+      const sheetsClient = (await import("../lib/sheetsClient")).default;
+      const created = await sheetsClient.appendTiming(
+        spreadsheetId,
+        payload,
+        clientId,
+      );
+      setTimings((prev) => prev.concat(created));
       resetForm();
     } catch (err) {
       console.error(err);
-      setError('Save failed');
+      setError("Save failed");
     }
   }
 
   function beginEdit(t, idx) {
     setEditingRow(idx);
-    setForm({ issue: t.issue || '', start: isoToLocalInput(t.start) });
-    setError('');
+    setForm({ issue: t.issue || "", start: isoToLocalInput(t.start) });
+    setError("");
     const rowKey = t.id ?? idx;
-    setSavingStatus(prev => {
+    setSavingStatus((prev) => {
       const copy = { ...prev };
       delete copy[rowKey];
       return copy;
@@ -187,49 +225,83 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   function scheduleSave(rowKey, rowIndex, newValues, serverId) {
     // clear existing timer
     if (saveTimers.current[rowKey]) clearTimeout(saveTimers.current[rowKey]);
-    setSavingStatus(prev => ({ ...prev, [rowKey]: 'saving' }));
+    setSavingStatus((prev) => ({ ...prev, [rowKey]: "saving" }));
     saveTimers.current[rowKey] = setTimeout(async () => {
       try {
-      const payload = { issue: newValues.issue || null, start: localInputToIso(newValues.start), repoUrl: repoUrl || null };
-      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
-      const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
-      const sheetsClient = (await import('../lib/sheetsClient')).default;
+        const payload = {
+          issue: newValues.issue || null,
+          start: localInputToIso(newValues.start),
+          repoUrl: repoUrl || null,
+        };
+        const spreadsheetId =
+          localStorage.getItem("spreadsheetId") ||
+          (import.meta.env &&
+            import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+        const clientId =
+          (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+        const sheetsClient = (await import("../lib/sheetsClient")).default;
         if (serverId) {
-          const updated = await sheetsClient.updateTiming(spreadsheetId, serverId, { issue: payload.issue, start: payload.start }, clientId).catch(err => { throw err; });
-          setTimings(prev => prev.map(p => p.id === updated.id ? updated : p));
+          const updated = await sheetsClient
+            .updateTiming(
+              spreadsheetId,
+              serverId,
+              { issue: payload.issue, start: payload.start },
+              clientId,
+            )
+            .catch((err) => {
+              throw err;
+            });
+          setTimings((prev) =>
+            prev.map((p) => (p.id === updated.id ? updated : p)),
+          );
         } else {
-          const created = await sheetsClient.appendTiming(spreadsheetId, { issue: payload.issue, start: payload.start }, clientId).catch(err => { throw err; });
-          setTimings(prev => {
+          const created = await sheetsClient
+            .appendTiming(
+              spreadsheetId,
+              { issue: payload.issue, start: payload.start },
+              clientId,
+            )
+            .catch((err) => {
+              throw err;
+            });
+          setTimings((prev) => {
             const copy = prev.slice();
             copy[rowIndex] = created;
             return copy;
           });
         }
-        setSavingStatus(prev => ({ ...prev, [rowKey]: 'saved' }));
-        setTimeout(() => setSavingStatus(prev => {
-          const copy = { ...prev };
-          delete copy[rowKey];
-          return copy;
-        }), 1200);
+        setSavingStatus((prev) => ({ ...prev, [rowKey]: "saved" }));
+        setTimeout(
+          () =>
+            setSavingStatus((prev) => {
+              const copy = { ...prev };
+              delete copy[rowKey];
+              return copy;
+            }),
+          1200,
+        );
       } catch (err) {
         console.error(err);
-        setSavingStatus(prev => ({ ...prev, [rowKey]: 'error' }));
-        setError('Auto-save failed');
+        setSavingStatus((prev) => ({ ...prev, [rowKey]: "error" }));
+        setError("Auto-save failed");
       }
     }, 800);
   }
 
   async function handleDelete(id) {
-    if (!confirm('Delete this timing?')) return;
+    if (!confirm("Delete this timing?")) return;
     try {
-      const spreadsheetId = localStorage.getItem('spreadsheetId') || (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
-      const clientId = (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
-      const sheetsClient = (await import('../lib/sheetsClient')).default;
+      const spreadsheetId =
+        localStorage.getItem("spreadsheetId") ||
+        (import.meta.env && import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
+      const clientId =
+        (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
+      const sheetsClient = (await import("../lib/sheetsClient")).default;
       await sheetsClient.deleteTiming(spreadsheetId, id, clientId);
-      setTimings(prev => prev.filter(t => t.id !== id));
+      setTimings((prev) => prev.filter((t) => t.id !== id));
     } catch (err) {
       console.error(err);
-      setError('Delete failed');
+      setError("Delete failed");
     }
   }
 
@@ -237,17 +309,17 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   const indexedTimings = timings.map((t, i) => ({ ...t, __idx: i }));
 
   function clearFilters() {
-    setSelectedIssue('all');
-    setDateFilter({ from: '', to: '' });
+    setSelectedIssue("all");
+    setDateFilter({ from: "", to: "" });
   }
 
-  const filteredTimings = indexedTimings.filter(t => {
-    if (selectedIssue && selectedIssue !== 'all') {
+  const filteredTimings = indexedTimings.filter((t) => {
+    if (selectedIssue && selectedIssue !== "all") {
       if (String(t.issue) !== String(selectedIssue)) return false;
     }
     // no status filter (open/closed) — removed per UI update
     // date range filter (applies to start)
-    const field = 'start';
+    const field = "start";
     const fromIso = dateFilter.from ? localInputToIso(dateFilter.from) : null;
     const toIso = dateFilter.to ? localInputToIso(dateFilter.to) : null;
     const val = t[field];
@@ -261,7 +333,13 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   });
 
   // derive unique issues present in timings (ignore null/empty)
-  const uniqueIssues = Array.from(new Set(timings.map(t => t.issue).filter(x => x !== null && x !== undefined && x !== ''))).sort((a, b) => {
+  const uniqueIssues = Array.from(
+    new Set(
+      timings
+        .map((t) => t.issue)
+        .filter((x) => x !== null && x !== undefined && x !== ""),
+    ),
+  ).sort((a, b) => {
     const na = Number(a);
     const nb = Number(b);
     if (!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
@@ -274,31 +352,35 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
   // Build a simple mapping issue -> title (for selector labels) from fetched titles using the first repoUrl for each issue
   useEffect(() => {
     const labels = {};
-    uniqueIssues.forEach(issue => {
-      const t = timings.find(x => String(x.issue) === String(issue));
-      labels[issue] = t && t.issueTitle ? t.issueTitle : '';
+    uniqueIssues.forEach((issue) => {
+      const t = timings.find((x) => String(x.issue) === String(issue));
+      labels[issue] = t && t.issueTitle ? t.issueTitle : "";
     });
     setIssueLabels(labels);
   }, [uniqueIssues, timings]);
-
 
   function formatDuration(start, end) {
     try {
       const s = Date.parse(start);
       const e = end ? Date.parse(end) : Date.now();
-      if (Number.isNaN(s) || Number.isNaN(e) || e < s) return '—';
+      if (Number.isNaN(s) || Number.isNaN(e) || e < s) return "—";
       const sec = Math.floor((e - s) / 1000);
       const h = Math.floor(sec / 3600).toString();
-      const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
-      const s2 = (sec % 60).toString().padStart(2, '0');
+      const m = Math.floor((sec % 3600) / 60)
+        .toString()
+        .padStart(2, "0");
+      const s2 = (sec % 60).toString().padStart(2, "0");
       return `${h}:${m}:${s2}`;
     } catch (err) {
-      return '—';
+      return "—";
     }
   }
 
   return (
-    <div className="timings-container" style={{ padding: 24, boxSizing: 'border-box' }}>
+    <div
+      className="timings-container"
+      style={{ padding: 24, boxSizing: "border-box" }}
+    >
       <style>{`
         .timings-container { font-family: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial; color: #0b2540; }
         .timings-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px }
@@ -342,115 +424,288 @@ export default function Timings({ repoUrl, ghToken, setGhToken }) {
 
       <div className="timings-header">
         <h2>Timings</h2>
-        <div style={{ display: 'flex', gap: 8 }}>
+        <div style={{ display: "flex", gap: 8 }}>
           {!googleAuthStatus.loading && !googleAuthStatus.authenticated && (
-            <button className="btn btn-outline" onClick={() => {
-              const clientId = serverConfig && serverConfig.googleClientId ? serverConfig.googleClientId : (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID);
-              const redirectUri = serverConfig && serverConfig.googleRedirectUri ? serverConfig.googleRedirectUri : (import.meta.env && import.meta.env.VITE_GOOGLE_REDIRECT_URI);
-              if (!clientId) {
-                alert('Missing Google Client ID configuration');
-                return;
-              }
-              const scope = encodeURIComponent('openid email profile https://www.googleapis.com/auth/spreadsheets');
-              const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
-              window.location.href = url;
-            }}>Authorize Google</button>
+            <button
+              className="btn btn-outline"
+              onClick={() => {
+                const clientId =
+                  serverConfig && serverConfig.googleClientId
+                    ? serverConfig.googleClientId
+                    : import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID;
+                let redirectUri =
+                  serverConfig && serverConfig.googleRedirectUri
+                    ? serverConfig.googleRedirectUri
+                    : import.meta.env &&
+                      import.meta.env.VITE_GOOGLE_REDIRECT_URI;
+
+                // If running locally, use the current origin to avoid redirecting to production
+                if (
+                  window.location.hostname === "localhost" ||
+                  window.location.hostname === "127.0.0.1"
+                ) {
+                  redirectUri = window.location.origin;
+                }
+
+                if (!clientId) {
+                  alert("Missing Google Client ID configuration");
+                  return;
+                }
+                const scope = encodeURIComponent(
+                  "openid email profile https://www.googleapis.com/auth/spreadsheets",
+                );
+                const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(clientId)}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=code&scope=${scope}&access_type=offline&prompt=consent`;
+                window.location.href = url;
+              }}
+            >
+              Authorize Google
+            </button>
           )}
-          {googleAuthStatus.authenticated && <div style={{ color:'#055a9a', fontWeight:600 }}>Google Sheets connected</div>}
+          {googleAuthStatus.authenticated && (
+            <div style={{ color: "#055a9a", fontWeight: 600 }}>
+              Google Sheets connected
+            </div>
+          )}
         </div>
       </div>
 
       <section>
-        <form onSubmit={handleAdd} className="timings-add-form" aria-label="Add timing">
-          <input className="input" placeholder="Issue ID or short title" value={form.issue} onChange={e => setForm({ ...form, issue: e.target.value })} />
-          <input className="input" type="datetime-local" aria-label="Start" value={form.start} onChange={e => setForm({ ...form, start: e.target.value })} />
+        <form
+          onSubmit={handleAdd}
+          className="timings-add-form"
+          aria-label="Add timing"
+        >
+          <input
+            className="input"
+            placeholder="Issue ID or short title"
+            value={form.issue}
+            onChange={(e) => setForm({ ...form, issue: e.target.value })}
+          />
+          <input
+            className="input"
+            type="datetime-local"
+            aria-label="Start"
+            value={form.start}
+            onChange={(e) => setForm({ ...form, start: e.target.value })}
+          />
           {/* End date removed; duration is captured by the server */}
-          <div style={{ display: 'flex', gap: 8 }}>
-            <button type="submit" className="btn btn-primary">{editingRow != null ? 'Save' : 'Add'}</button>
-            {editingRow != null && <button type="button" className="btn btn-outline" onClick={() => { setEditingRow(null); resetForm(); }}>Cancel</button>}
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="submit" className="btn btn-primary">
+              {editingRow != null ? "Save" : "Add"}
+            </button>
+            {editingRow != null && (
+              <button
+                type="button"
+                className="btn btn-outline"
+                onClick={() => {
+                  setEditingRow(null);
+                  resetForm();
+                }}
+              >
+                Cancel
+              </button>
+            )}
           </div>
         </form>
-        {error && <div role="alert" style={{ color: '#8b0000', marginTop: 8 }}>{error}</div>}
+        {error && (
+          <div role="alert" style={{ color: "#8b0000", marginTop: 8 }}>
+            {error}
+          </div>
+        )}
       </section>
 
       <section>
         <div className="filters">
           <div className="label">Filters:</div>
-          <select aria-label="Issue selector" value={selectedIssue} onChange={e => setSelectedIssue(e.target.value)} className="input" style={{ minWidth: 220 }}>
+          <select
+            aria-label="Issue selector"
+            value={selectedIssue}
+            onChange={(e) => setSelectedIssue(e.target.value)}
+            className="input"
+            style={{ minWidth: 220 }}
+          >
             <option value="all">All issues</option>
-            {uniqueIssues.map(i => {
+            {uniqueIssues.map((i) => {
               const label = issueLabels[i];
-              const numeric = String(i).replace(/[^0-9]/g, '');
-              const text = label && numeric ? `#${numeric}: ${label}` : i + (label ? ` - ${label}` : '');
-              return <option key={i} value={i}>{text}</option>;
+              const numeric = String(i).replace(/[^0-9]/g, "");
+              const text =
+                label && numeric
+                  ? `#${numeric}: ${label}`
+                  : i + (label ? ` - ${label}` : "");
+              return (
+                <option key={i} value={i}>
+                  {text}
+                </option>
+              );
             })}
           </select>
           {/* status filter removed */}
           {/* date field selector removed; filtering applies to Start */}
-          <input aria-label="From date" title="From date" type="datetime-local" value={dateFilter.from} onChange={e => setDateFilter(prev => ({ ...prev, from: e.target.value }))} className="input" />
-          <input aria-label="To date" title="To date" type="datetime-local" value={dateFilter.to} onChange={e => setDateFilter(prev => ({ ...prev, to: e.target.value }))} className="input" />
-          <button type="button" onClick={clearFilters} className="btn btn-primary">Clear filters</button>
+          <input
+            aria-label="From date"
+            title="From date"
+            type="datetime-local"
+            value={dateFilter.from}
+            onChange={(e) =>
+              setDateFilter((prev) => ({ ...prev, from: e.target.value }))
+            }
+            className="input"
+          />
+          <input
+            aria-label="To date"
+            title="To date"
+            type="datetime-local"
+            value={dateFilter.to}
+            onChange={(e) =>
+              setDateFilter((prev) => ({ ...prev, to: e.target.value }))
+            }
+            className="input"
+          />
+          <button
+            type="button"
+            onClick={clearFilters}
+            className="btn btn-primary"
+          >
+            Clear filters
+          </button>
         </div>
-        {loading ? <div>Loading…</div> : (
+        {loading ? (
+          <div>Loading…</div>
+        ) : (
           <div className="timings-panel">
-            <div style={{ overflowX: 'auto', width: '100%' }}>
+            <div style={{ overflowX: "auto", width: "100%" }}>
               <table className="timings-table">
                 <thead>
                   <tr>
-                    <th style={{ width: '40%' }}>Issue</th>
-                    <th style={{ width: '18%' }}>Start</th>
-                    <th style={{ width: '18%' }}>Duration</th>
-                    <th style={{ width: '6%' }}></th>
+                    <th style={{ width: "40%" }}>Issue</th>
+                    <th style={{ width: "18%" }}>Start</th>
+                    <th style={{ width: "18%" }}>Duration</th>
+                    <th style={{ width: "6%" }}></th>
                   </tr>
                 </thead>
                 <tbody>
                   {filteredTimings.length === 0 && (
-                    <tr><td colSpan={6} style={{ padding: 18 }}>No timings found for the selected filters.</td></tr>
+                    <tr>
+                      <td colSpan={6} style={{ padding: 18 }}>
+                        No timings found for the selected filters.
+                      </td>
+                    </tr>
                   )}
                   {filteredTimings.map((t) => {
                     const idx = t.__idx;
                     return (
-                      <tr key={t.id || idx} style={{ borderTop: '1px solid #f0f6fb' }}>
+                      <tr
+                        key={t.id || idx}
+                        style={{ borderTop: "1px solid #f0f6fb" }}
+                      >
                         <td data-label="Issue">
                           {editingRow === idx ? (
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-                                        <input className="input" value={form.issue} onChange={e => { const nv = { ...form, issue: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} />
+                            <div
+                              style={{
+                                display: "flex",
+                                flexDirection: "column",
+                                gap: 8,
+                              }}
+                            >
+                              <input
+                                className="input"
+                                value={form.issue}
+                                onChange={(e) => {
+                                  const nv = { ...form, issue: e.target.value };
+                                  setForm(nv);
+                                  const rowKey = t.id ?? idx;
+                                  scheduleSave(rowKey, idx, nv, t.id);
+                                }}
+                              />
                             </div>
                           ) : (
                             <div>
-                              <div className="issue-title">{
-                                (() => {
+                              <div className="issue-title">
+                                {(() => {
                                   const title = t.issueTitle;
-                                  const numeric = String(t.issue).replace(/[^0-9]/g, '');
-                                  if (title && numeric) return `Issue #${numeric}: ${title}`;
+                                  const numeric = String(t.issue).replace(
+                                    /[^0-9]/g,
+                                    "",
+                                  );
+                                  if (title && numeric)
+                                    return `Issue #${numeric}: ${title}`;
                                   if (title) return title;
                                   return t.issue;
-                                })()
-                              }</div>
+                                })()}
+                              </div>
                               {/* descriptions no longer persisted to the sheet */}
                             </div>
                           )}
                         </td>
-                        <td data-label="Start">{editingRow === idx ? (
-                          <input className="input" type="datetime-local" value={form.start} onChange={e => { const nv = { ...form, start: e.target.value }; setForm(nv); const rowKey = t.id ?? idx; scheduleSave(rowKey, idx, nv, t.id); }} />
-                        ) : new Date(t.start).toLocaleString()}</td>
-                        <td data-label="Duration">{t.duration != null ? (function() {
-                          const sec = Number(t.duration);
-                          if (Number.isNaN(sec)) return '—';
-                          const h = Math.floor(sec / 3600).toString();
-                          const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
-                          const s2 = (sec % 60).toString().padStart(2, '0');
-                          return `${h}:${m}:${s2}`;
-                        })() : formatDuration(t.start, null)} {savingStatus[t.id ?? idx] === 'saving' ? ' (saving...)' : savingStatus[t.id ?? idx] === 'saved' ? ' (saved)' : ''}</td>
+                        <td data-label="Start">
+                          {editingRow === idx ? (
+                            <input
+                              className="input"
+                              type="datetime-local"
+                              value={form.start}
+                              onChange={(e) => {
+                                const nv = { ...form, start: e.target.value };
+                                setForm(nv);
+                                const rowKey = t.id ?? idx;
+                                scheduleSave(rowKey, idx, nv, t.id);
+                              }}
+                            />
+                          ) : (
+                            new Date(t.start).toLocaleString()
+                          )}
+                        </td>
+                        <td data-label="Duration">
+                          {t.duration != null
+                            ? (function () {
+                                const sec = Number(t.duration);
+                                if (Number.isNaN(sec)) return "—";
+                                const h = Math.floor(sec / 3600).toString();
+                                const m = Math.floor((sec % 3600) / 60)
+                                  .toString()
+                                  .padStart(2, "0");
+                                const s2 = (sec % 60)
+                                  .toString()
+                                  .padStart(2, "0");
+                                return `${h}:${m}:${s2}`;
+                              })()
+                            : formatDuration(t.start, null)}{" "}
+                          {savingStatus[t.id ?? idx] === "saving"
+                            ? " (saving...)"
+                            : savingStatus[t.id ?? idx] === "saved"
+                              ? " (saved)"
+                              : ""}
+                        </td>
                         <td data-label="Actions">
                           {editingRow === idx ? (
-                            <button aria-label="Done" title="Done" className="btn btn-primary" onClick={() => { setEditingRow(null); resetForm(); }}>
+                            <button
+                              aria-label="Done"
+                              title="Done"
+                              className="btn btn-primary"
+                              onClick={() => {
+                                setEditingRow(null);
+                                resetForm();
+                              }}
+                            >
                               Done
                             </button>
                           ) : (
-                            <div style={{ display: 'flex', gap: 8 }}>
-                              <button aria-label="Edit" title="Edit" className="btn btn-outline" onClick={() => beginEdit(t, idx)}>Edit</button>
-                              <button aria-label="Delete" title="Delete" className="btn btn-outline" onClick={() => handleDelete(t.id)}>Delete</button>
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button
+                                aria-label="Edit"
+                                title="Edit"
+                                className="btn btn-outline"
+                                onClick={() => beginEdit(t, idx)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                aria-label="Delete"
+                                title="Delete"
+                                className="btn btn-outline"
+                                onClick={() => handleDelete(t.id)}
+                              >
+                                Delete
+                              </button>
                             </div>
                           )}
                         </td>

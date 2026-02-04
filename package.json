@@ -3,7 +3,6 @@
   "version": "0.1.0",
   "private": true,
   "homepage": "https://alaws-scottlogic.github.io/time-allocated-to-issue/",
-
   "scripts": {
     "dev": "vite",
     "build": "vite build",
