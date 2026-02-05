@@ -12,6 +12,14 @@ const ISSUE_COLORS = [
   { bg: "#e0f2f1", border: "#009688", text: "#00796b" }, // Teal
   { bg: "#fffde7", border: "#fbc02d", text: "#f57f17" }, // Yellow
   { bg: "#efebe9", border: "#795548", text: "#5d4037" }, // Brown
+  { bg: "#e1f5fe", border: "#03a9f4", text: "#0277bd" }, // Light Blue
+  { bg: "#f1f8e9", border: "#8bc34a", text: "#558b2f" }, // Light Green
+  { bg: "#fff9c4", border: "#fdd835", text: "#f9a825" }, // Amber
+  { bg: "#ede7f6", border: "#673ab7", text: "#4527a0" }, // Deep Purple
+  { bg: "#fbe9e7", border: "#ff5722", text: "#d84315" }, // Deep Orange
+  { bg: "#f5f5f5", border: "#9e9e9e", text: "#616161" }, // Grey
+  { bg: "#e8eaf6", border: "#3f51b5", text: "#283593" }, // Indigo
+  { bg: "#e0f7fa", border: "#00bcd4", text: "#00838f" }, // Cyan
 ];
 
 function getIssueColor(issue) {
@@ -19,7 +27,7 @@ function getIssueColor(issue) {
   const str = String(issue);
   let hash = 0;
   for (let i = 0; i < str.length; i++) {
-    hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    hash = str.charCodeAt(i) + ((hash << 7) - hash);
   }
   const index = Math.abs(hash) % ISSUE_COLORS.length;
   return ISSUE_COLORS[index];
@@ -288,8 +296,8 @@ export default function Calendar() {
       weeks[weekKey].minHour = Math.min(weeks[weekKey].minHour, day.minHour);
       weeks[weekKey].maxHour = Math.max(weeks[weekKey].maxHour, day.maxHour);
     });
-    // Sort weeks descending, but days within week ascending
-    const sortedWeekKeys = Object.keys(weeks).sort().reverse();
+    // Sort weeks ascending
+    const sortedWeekKeys = Object.keys(weeks).sort();
     sortedWeekKeys.forEach((k) => {
       weeks[k].days.sort(
         (a, b) => new Date(a.timings[0]?.start) - new Date(b.timings[0]?.start),
@@ -587,9 +595,18 @@ export default function Calendar() {
               >
                 Week {week.id}
               </h3>
-              <div style={{ display: "flex", overflowX: "auto", gap: 0 }}>
+              <div
+                style={{
+                  display: "flex",
+                  overflowX: "auto",
+                  gap: 0,
+                  paddingTop: 12,
+                }}
+              >
                 {/* Global Gutter for the week */}
                 <div style={{ width: 60, flexShrink: 0 }}>
+                  <div style={{ height: 36 }} />{" "}
+                  {/* Spacer to align with date headers */}
                   {Array.from({ length: week.maxHour - week.minHour + 1 }).map(
                     (_, i) => (
                       <div

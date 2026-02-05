@@ -102,6 +102,86 @@ export default function App() {
     }
   }, []);
 
+  const stageTiming = React.useCallback(
+    (closed, spreadsheetId, clientId) => {
+      try {
+        const stagedRaw = localStorage.getItem("pendingTimings");
+        const staged = stagedRaw ? JSON.parse(stagedRaw) : [];
+        const entry = {
+          closed,
+          spreadsheetId:
+            spreadsheetId ||
+            localStorage.getItem("spreadsheetId") ||
+            (import.meta.env &&
+              import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID),
+          clientId:
+            clientId ||
+            (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) ||
+            null,
+        };
+        // Avoid duplicate staging of the exact same start/issue
+        const isDup = staged.some(
+          (s) =>
+            s.closed.issue === closed.issue && s.closed.start === closed.start,
+        );
+        if (!isDup) {
+          staged.push(entry);
+          localStorage.setItem("pendingTimings", JSON.stringify(staged));
+        }
+      } catch (e) {
+        console.error("Failed to stage timing", e);
+      }
+    },
+    [],
+  );
+
+  const processPendingTimings = React.useCallback(async () => {
+    const stagedRaw = localStorage.getItem("pendingTimings");
+    if (!stagedRaw) return;
+    try {
+      const staged = JSON.parse(stagedRaw);
+      if (!Array.isArray(staged) || staged.length === 0) return;
+
+      const remaining = [];
+      const activeJson = sessionStorage.getItem("activeSelection");
+      let activeObj = null;
+      try {
+        activeObj = activeJson ? JSON.parse(activeJson) : null;
+      } catch (e) {}
+
+      for (const entry of staged) {
+        try {
+          const { spreadsheetId, closed, clientId } = entry;
+          await sheetsClient.appendTiming(spreadsheetId, closed, clientId);
+
+          // If this timing matches what's currently active in sessionStorage, clear it
+          // to prevent double-saving when the user eventually stops or switches.
+          if (
+            activeObj &&
+            activeObj.issue === closed.issue &&
+            activeObj.start === closed.start
+          ) {
+            sessionStorage.removeItem("activeSelection");
+            setActive(null);
+            activeObj = null;
+          }
+        } catch (e) {
+          console.error("Failed to process staged timing item", e);
+          remaining.push(entry);
+        }
+      }
+
+      if (remaining.length > 0) {
+        localStorage.setItem("pendingTimings", JSON.stringify(remaining));
+      } else {
+        localStorage.removeItem("pendingTimings");
+      }
+      reloadTimings();
+    } catch (e) {
+      console.error("Failed to process pending timings", e);
+    }
+  }, [reloadTimings]);
+
   // NEW: Handle Google OAuth callback
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -149,8 +229,14 @@ export default function App() {
     if (authStatus && authStatus.authenticated) {
       reloadIssues();
       reloadTimings();
+      processPendingTimings();
     }
-  }, [authStatus && authStatus.authenticated, reloadIssues, reloadTimings]);
+  }, [
+    authStatus && authStatus.authenticated,
+    reloadIssues,
+    reloadTimings,
+    processPendingTimings,
+  ]);
 
   async function addIssues(override) {
     const raw =
@@ -267,12 +353,20 @@ export default function App() {
             const clientId =
               (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) ||
               null;
-            await sheetsClient.appendTiming(spreadsheetId, closed, clientId);
-            reloadTimings();
+            try {
+              await sheetsClient.appendTiming(spreadsheetId, closed, clientId);
+              sessionStorage.removeItem("activeSelection");
+              reloadTimings();
+            } catch (err) {
+              console.error("Failed to save timing on stop, staging it", err);
+              stageTiming(closed, spreadsheetId, clientId);
+              sessionStorage.removeItem("activeSelection");
+              alert(
+                "Could not save to Google Sheets (auth or network error). Timing has been saved locally and will sync when you next authorize.",
+              );
+            }
           }
         }
-        // Clear active after stopping
-        sessionStorage.removeItem("activeSelection");
         setActive(null);
         try {
           localStorage.setItem("selected_issue", "");
@@ -307,10 +401,15 @@ export default function App() {
         if (spreadsheetId) {
           const clientId =
             (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) || null;
-          await sheetsClient
-            .appendTiming(spreadsheetId, closed, clientId)
-            .catch(() => {});
-          reloadTimings();
+          try {
+            await sheetsClient.appendTiming(spreadsheetId, closed, clientId);
+            sessionStorage.removeItem("activeSelection");
+            reloadTimings();
+          } catch (err) {
+            console.error("Failed to save previous timing, staging it", err);
+            stageTiming(closed, spreadsheetId, clientId);
+            sessionStorage.removeItem("activeSelection");
+          }
         }
       }
     } catch (e) {
@@ -323,6 +422,8 @@ export default function App() {
     try {
       localStorage.setItem("selected_issue", issue);
     } catch (err) {}
+    // Also try to process any previously staged timings
+    processPendingTimings();
   }
 
   useEffect(() => {
@@ -594,19 +695,12 @@ export default function App() {
               localStorage.getItem("spreadsheetId") ||
               (import.meta.env &&
                 import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID);
-            if (spreadsheetId && navigator && navigator.sendBeacon) {
-              const clientId =
-                (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) ||
-                null;
-              // Best-effort: send to a simple endpointless beacon (note: Google Sheets API requires auth; beacon may not work)
-              // Fallback: persist to localStorage and rely on user to save later.
-              localStorage.setItem(
-                "stagedClosed",
-                JSON.stringify({ spreadsheetId, closed, clientId }),
-              );
-            } else {
-              localStorage.setItem("stagedClosed", JSON.stringify({ closed }));
-            }
+
+            const clientId =
+              (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) ||
+              null;
+
+            stageTiming(closed, spreadsheetId, clientId);
           } catch (e) {
             /* ignore */
           }
