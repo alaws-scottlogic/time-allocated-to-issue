@@ -102,38 +102,35 @@ export default function App() {
     }
   }, []);
 
-  const stageTiming = React.useCallback(
-    (closed, spreadsheetId, clientId) => {
-      try {
-        const stagedRaw = localStorage.getItem("pendingTimings");
-        const staged = stagedRaw ? JSON.parse(stagedRaw) : [];
-        const entry = {
-          closed,
-          spreadsheetId:
-            spreadsheetId ||
-            localStorage.getItem("spreadsheetId") ||
-            (import.meta.env &&
-              import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID),
-          clientId:
-            clientId ||
-            (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) ||
-            null,
-        };
-        // Avoid duplicate staging of the exact same start/issue
-        const isDup = staged.some(
-          (s) =>
-            s.closed.issue === closed.issue && s.closed.start === closed.start,
-        );
-        if (!isDup) {
-          staged.push(entry);
-          localStorage.setItem("pendingTimings", JSON.stringify(staged));
-        }
-      } catch (e) {
-        console.error("Failed to stage timing", e);
+  const stageTiming = React.useCallback((closed, spreadsheetId, clientId) => {
+    try {
+      const stagedRaw = localStorage.getItem("pendingTimings");
+      const staged = stagedRaw ? JSON.parse(stagedRaw) : [];
+      const entry = {
+        closed,
+        spreadsheetId:
+          spreadsheetId ||
+          localStorage.getItem("spreadsheetId") ||
+          (import.meta.env &&
+            import.meta.env.VITE_GOOGLE_SHEETS_SPREADSHEET_ID),
+        clientId:
+          clientId ||
+          (import.meta.env && import.meta.env.VITE_GOOGLE_CLIENT_ID) ||
+          null,
+      };
+      // Avoid duplicate staging of the exact same start/issue
+      const isDup = staged.some(
+        (s) =>
+          s.closed.issue === closed.issue && s.closed.start === closed.start,
+      );
+      if (!isDup) {
+        staged.push(entry);
+        localStorage.setItem("pendingTimings", JSON.stringify(staged));
       }
-    },
-    [],
-  );
+    } catch (e) {
+      console.error("Failed to stage timing", e);
+    }
+  }, []);
 
   const processPendingTimings = React.useCallback(async () => {
     const stagedRaw = localStorage.getItem("pendingTimings");
@@ -1089,7 +1086,7 @@ export default function App() {
                       type="radio"
                       name="issue"
                       value="stop"
-                      checked={active === "stop"}
+                      checked={active === "stop" || active === null}
                       onChange={() => selectIssue("stop")}
                       style={{ width: 18, height: 18 }}
                     />
